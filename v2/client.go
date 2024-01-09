@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"crypto/tls"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1478,8 +1479,8 @@ func (resp *Response) ToString() string {
 					} else if str, ok := resp.Results[r].Series[s].Values[v][vv].(string); ok {
 						result += str
 					} else if jsonNumber, ok := resp.Results[r].Series[s].Values[v][vv].(json.Number); ok {
-						//str := jsonNumber.String()
-						//result += str
+						str := jsonNumber.String()
+						result += str
 						jsonNumber.String()
 					} else {
 						result += "N"
@@ -1518,7 +1519,7 @@ func (resp *Response) ToByteArray() []byte {
 		for t, tag := range tags {
 			result = append(result, []byte(fmt.Sprintf("%s=%s ", tags[t], resp.Results[0].Series[s].Tags[tag]))...)
 		}
-		result = append(result, []byte("\r\n")...) // 列名和数据间换行  "\r\n" 还是 "\n" ?	用 "\r\n", 因为 memcache 读取换行符是 CRLF("\r\n")
+		result = append(result, []byte("\r\n")...)
 
 		for v := range resp.Results[0].Series[s].Values {
 			for vv := range resp.Results[0].Series[s].Values[v] { // 从JSON转换出来之后只有 string 和 json.Number 两种类型
@@ -1527,8 +1528,30 @@ func (resp *Response) ToByteArray() []byte {
 				} else if str, ok := resp.Results[0].Series[s].Values[v][vv].(string); ok { // 字符串类型
 					result = append(result, []byte(str)...)
 				} else if jsonNumber, ok := resp.Results[0].Series[s].Values[v][vv].(json.Number); ok { // 数字类型
-					numberByteArray, _ := json.Marshal(jsonNumber)
-					result = append(result, numberByteArray...)
+					jnI, err := jsonNumber.Int64()
+					if err == nil {
+						//  todo : int to []byte
+						bytesBuffer := bytes.NewBuffer([]byte{})
+						binary.Write(bytesBuffer, binary.BigEndian, &jnI)
+						result = append(result, bytesBuffer.Bytes()...)
+					} else {
+						jnF, err := jsonNumber.Float64()
+						if err == nil {
+							// todo : float to []byte
+							result = append(result, byte(jnF))
+						} else {
+							fmt.Errorf(err.Error())
+						}
+					}
+
+					//numberByteArray, _ := json.Marshal(jsonNumber)
+					//result = append(result, numberByteArray...)
+				} else if jsonBoolean, ok := resp.Results[0].Series[s].Values[v][vv].(bool); ok { // bool类型
+					if jsonBoolean == true {
+						result = append(result, []byte{1}...)
+					} else {
+						result = append(result, []byte{0}...)
+					}
 				} else {
 					result = append(result, []byte("_")...)
 				}

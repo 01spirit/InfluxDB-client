@@ -1,12 +1,13 @@
 package main
 
 import (
-	"encoding/json"
+	"bytes"
+	"encoding/binary"
 	"fmt"
 	"github.com/InfluxDB-client/memcache"
 	"github.com/InfluxDB-client/v2"
 	"log"
-	"strconv"
+	"time"
 )
 
 const (
@@ -173,29 +174,108 @@ func main() {
 
 	*/
 
-	num := json.Number("42.12") // 一个json.Number类型的数字
-	// 将json.Number类型转换为字节数组
-	byteArray, err := json.Marshal(num)
-	fmt.Println(num)
-	fmt.Printf("%b\n", byteArray)
-
-	num2 := json.Number("123.45")
-	byteArray2, err := json.Marshal(num2)
-	fmt.Println(num2)
-	fmt.Printf("%b\n", byteArray2)
-
-	num3 := json.Number("123.456")
-	byteArray3, err := json.Marshal(num3)
-	fmt.Println(num3)
-	fmt.Printf("%b\n", byteArray3)
-	fmt.Println(string(byteArray3))
-	fmt.Println(strconv.ParseFloat(string(byteArray3), 64))
-
 	queryMemcache := "SELECT randtag,index FROM h2o_quality limit 5"
 	qm := client.NewQuery(queryMemcache, MyDB, "")
 	respCache, _ := c.Query(qm)
 
-	fmt.Println(respCache.Results[0].Series[0].Partial)
+	tmp1 := uint64(100200300)
+	bytesBuffer1 := bytes.NewBuffer([]byte{})
+	binary.Write(bytesBuffer1, binary.BigEndian, &tmp1)
+	fmt.Println(tmp1)
+	fmt.Printf("uint64:\t%b\n", bytesBuffer1.Bytes())
+	fmt.Println("length:\t", len(bytesBuffer1.Bytes()))
+	var back1 uint64
+	binary.Read(bytesBuffer1, binary.BigEndian, &back1)
+	fmt.Println("back:\t", back1)
+	fmt.Println()
+
+	tmp2 := int32(100200300)
+	bytesBuffer2 := bytes.NewBuffer([]byte{})
+	binary.Write(bytesBuffer2, binary.BigEndian, &tmp2)
+	fmt.Println(tmp2)
+	fmt.Printf("int32:\t%b\n", bytesBuffer2.Bytes())
+	fmt.Println("length:\t", len(bytesBuffer2.Bytes()))
+	var back2 int32
+	binary.Read(bytesBuffer2, binary.BigEndian, &back2)
+	fmt.Println("back:\t", back2)
+	fmt.Println()
+
+	tmp3 := int16(10020)
+	bytesBuffer3 := bytes.NewBuffer([]byte{})
+	binary.Write(bytesBuffer3, binary.BigEndian, &tmp3)
+	fmt.Println(tmp3)
+	fmt.Printf("int16:\t%b\n", bytesBuffer3.Bytes())
+	fmt.Println("length:\t", len(bytesBuffer3.Bytes()))
+	var back3 int16
+	binary.Read(bytesBuffer3, binary.BigEndian, &back3)
+	fmt.Println("back:\t", back3)
+	fmt.Println()
+
+	tmp4 := uint8(100)
+	bytesBuffer4 := bytes.NewBuffer([]byte{})
+	binary.Write(bytesBuffer4, binary.BigEndian, &tmp4)
+	fmt.Println(tmp4)
+	fmt.Printf("uint8:\t%b\n", bytesBuffer4.Bytes())
+	fmt.Println("length:\t", len(bytesBuffer4.Bytes()))
+	var back4 uint8
+	binary.Read(bytesBuffer4, binary.BigEndian, &back4)
+	fmt.Println("back:\t", back4)
+	fmt.Println()
+
+	tmpBoolTrue := bool(true)
+	bytesBufferBoolTrue := bytes.NewBuffer([]byte{})
+	binary.Write(bytesBufferBoolTrue, binary.BigEndian, &tmpBoolTrue)
+	fmt.Println(tmpBoolTrue)
+	fmt.Printf("BoolTrue:\t%b\n", bytesBufferBoolTrue.Bytes())
+	fmt.Println("length:\t", len(bytesBufferBoolTrue.Bytes()))
+	var backBT bool
+	binary.Read(bytesBufferBoolTrue, binary.BigEndian, &backBT)
+	fmt.Println("back:\t", backBT)
+	fmt.Println()
+
+	tmpBoolFalse := bool(false)
+	bytesBufferBoolFalse := bytes.NewBuffer([]byte{})
+	binary.Write(bytesBufferBoolFalse, binary.BigEndian, &tmpBoolFalse)
+	fmt.Println(tmpBoolFalse)
+	fmt.Printf("BoolFalse:\t%b\n", bytesBufferBoolFalse.Bytes())
+	fmt.Println("length:\t", len(bytesBufferBoolFalse.Bytes()))
+	var backBF bool
+	binary.Read(bytesBufferBoolFalse, binary.BigEndian, &backBF)
+	fmt.Println("back:\t", backBF)
+	fmt.Println()
+
+	tmpFloat64 := float64(123.456)
+	bytesBufferFloat64 := bytes.NewBuffer([]byte{})
+	binary.Write(bytesBufferFloat64, binary.BigEndian, &tmpFloat64)
+	fmt.Println(tmpFloat64)
+	fmt.Printf("Float64:\t%b\n", bytesBufferFloat64.Bytes())
+	fmt.Println("length:\t", len(bytesBufferFloat64.Bytes()))
+	var backF float64
+	binary.Read(bytesBufferFloat64, binary.BigEndian, &backF)
+	fmt.Println("back:\t", backF)
+	fmt.Println()
+
+	tmpFloat64S := float64(123.456123)
+	bytesBufferFloat64S := bytes.NewBuffer([]byte{})
+	binary.Write(bytesBufferFloat64S, binary.BigEndian, &tmpFloat64S)
+	fmt.Println(tmpFloat64S)
+	fmt.Printf("Float64:\t%b\n", bytesBufferFloat64S.Bytes())
+	fmt.Println("length:\t", len(bytesBufferFloat64S.Bytes()))
+	var backFS float64
+	binary.Read(bytesBufferFloat64S, binary.BigEndian, &backFS)
+	fmt.Println("back:\t", backFS)
+	fmt.Println()
+
+	tmpFloat64T := float64(111123.456123)
+	bytesBufferFloat64T := bytes.NewBuffer([]byte{})
+	binary.Write(bytesBufferFloat64T, binary.BigEndian, &tmpFloat64T)
+	fmt.Println(tmpFloat64T)
+	fmt.Printf("Float64:\t%b\n", bytesBufferFloat64T.Bytes())
+	fmt.Println("length:\t", len(bytesBufferFloat64T.Bytes()))
+	var backFT float64
+	binary.Read(bytesBufferFloat64T, binary.BigEndian, &backFT)
+	fmt.Println("back:\t", backFT)
+	fmt.Println()
 
 	fmt.Printf("byte array:\n%s\n\n", respCache.ToByteArray())
 
@@ -205,7 +285,12 @@ func main() {
 	mc := memcache.New("localhost:11213")
 	// 在缓存中设置值
 	// todo set的Value是字节流，需要写 tostring()方法
-	err = mc.Set(&memcache.Item{Key: "mykey", Value: []byte(str), Time_start: 134123, Time_end: 53421432123})
+	//err = mc.Set(&memcache.Item{Key: "mykey", Value: []byte(str), Time_start: 134123, Time_end: 53421432123})
+
+	inter := respCache.Results[0].Series[0].Values[0][0].(string)
+	ts, _ := time.Parse(time.RFC3339, inter)
+	fmt.Println(uint64(ts.UnixNano()))
+
 	if err != nil {
 		log.Fatalf("Error setting value: %v", err)
 	}
