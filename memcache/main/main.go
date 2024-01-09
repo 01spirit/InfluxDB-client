@@ -1,8 +1,8 @@
 package main
 
 import (
+	"github.com/InfluxDB-client/memcache"
 	"log"
-	"memcache"
 )
 
 func main() {
