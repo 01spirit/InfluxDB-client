@@ -350,7 +350,7 @@ func (c *Client) FlushAll() error {
 
 // Get gets the item for the given key. ErrCacheMiss is returned for a
 // memcache cache miss. The key must be at most 250 bytes in length.
-func (c *Client) Get(key string, start_time uint64, end_time uint64) (itemValues []string, item *Item, err error) {
+func (c *Client) Get(key string, start_time uint64, end_time uint64) (itemValues []byte, item *Item, err error) {
 	err = c.withKeyAddr(key, func(addr net.Addr) error {
 		return c.getFromAddr(addr, key, start_time, end_time, &itemValues, func(it *Item) { item = it })
 	})
@@ -406,7 +406,7 @@ VALUE user 0 3 101
 zyx
 END
 */
-func (c *Client) getFromAddr(addr net.Addr, key string, start_time uint64, end_time uint64, itemValues *[]string, cb func(*Item)) error {
+func (c *Client) getFromAddr(addr net.Addr, key string, start_time uint64, end_time uint64, itemValues *[]byte, cb func(*Item)) error {
 	return c.withAddrRw(addr, func(rw *bufio.ReadWriter) error {
 		/*if _, err := fmt.Fprintf(rw, "get %s t %d %d\r\n", strings.Join(keys, " "), start_time, end_time); err != nil { //使用 gets 查询，除了获取key的flag及value以外，额外多获取一个cas unique id的值
 			return err
@@ -523,7 +523,7 @@ func (c *Client) GetMulti(keys []string, start_time uint64, end_time uint64) (ma
 		keyMap[addr] = append(keyMap[addr], key)
 	}
 
-	var itemValues *[]string
+	var itemValues *[]byte
 	ch := make(chan error, buffered)
 	for addr, keys := range keyMap {
 		go func(addr net.Addr, keys []string) {
@@ -542,7 +542,7 @@ func (c *Client) GetMulti(keys []string, start_time uint64, end_time uint64) (ma
 
 // parseGetResponse reads a GET response from r and calls cb for each		从Reader中读取一个 GET response，为每个读取到的并且分配好空间的Item调用函数cb
 // read and allocated Item
-func parseGetResponse(r *bufio.Reader, itemValues *[]string, cb func(*Item)) (err error) {
+func parseGetResponse(r *bufio.Reader, itemValues *[]byte, cb func(*Item)) (err error) {
 	/*for { //每次读入一行，直到 Reader 为空
 		line, err := r.ReadSlice('\n') //从查寻结果中读取一行
 		if err != nil {
@@ -591,7 +591,7 @@ func parseGetResponse(r *bufio.Reader, itemValues *[]string, cb func(*Item)) (er
 		}
 		cb(it)
 		//fmt.Printf("%s", it.Value)
-		*itemValues = append(*itemValues, string(it.Value))
+		*itemValues = append(*itemValues, it.Value...)
 	}
 }
 

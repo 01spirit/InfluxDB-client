@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"github.com/InfluxDB-client/memcache"
 	"github.com/InfluxDB-client/v2"
@@ -43,6 +44,20 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	ii := json.Number("123")
+	//ff := json.Number("123.456")
+	//ss := json.Number("asd")
+
+	d, errD := ii.Int64()
+	f, errF := ii.Float64()
+	s := ii.String()
+	//d, errD := ff.Int64()
+	//f, errF := ff.Float64()
+	//s := ff.String()
+	fmt.Println(d, errD)
+	fmt.Println(f, errF)
+	fmt.Println(s)
 
 	//var int1, int2 int64
 	//int1 = math.MaxInt - 1
@@ -174,19 +189,23 @@ func main() {
 
 	*/
 
+	//fmt.Println(time.Hour.Nanoseconds())
+
 	queryMemcache := "SELECT randtag,index FROM h2o_quality limit 5"
 	qm := client.NewQuery(queryMemcache, MyDB, "")
 	respCache, _ := c.Query(qm)
 
-	tmp1 := uint64(100200300)
+	tmp1 := int64(100200300)
 	bytesBuffer1 := bytes.NewBuffer([]byte{})
 	binary.Write(bytesBuffer1, binary.BigEndian, &tmp1)
 	fmt.Println(tmp1)
-	fmt.Printf("uint64:\t%b\n", bytesBuffer1.Bytes())
+	fmt.Printf("int64:\t%b\n", bytesBuffer1.Bytes())
 	fmt.Println("length:\t", len(bytesBuffer1.Bytes()))
-	var back1 uint64
+	fmt.Println("string:\t", bytesBuffer1.String())
+	var back1 int64
 	binary.Read(bytesBuffer1, binary.BigEndian, &back1)
 	fmt.Println("back:\t", back1)
+
 	fmt.Println()
 
 	tmp2 := int32(100200300)
@@ -277,7 +296,7 @@ func main() {
 	fmt.Println("back:\t", backFT)
 	fmt.Println()
 
-	fmt.Printf("byte array:\n%s\n\n", respCache.ToByteArray())
+	fmt.Printf("byte array:\n%d\n\n", respCache.ToByteArray())
 
 	var str string
 	str = respCache.ToString()
@@ -285,7 +304,7 @@ func main() {
 	mc := memcache.New("localhost:11213")
 	// 在缓存中设置值
 	// todo set的Value是字节流，需要写 tostring()方法
-	//err = mc.Set(&memcache.Item{Key: "mykey", Value: []byte(str), Time_start: 134123, Time_end: 53421432123})
+	err = mc.Set(&memcache.Item{Key: "mykey", Value: []byte(str), Time_start: 134123, Time_end: 53421432123})
 
 	inter := respCache.Results[0].Series[0].Values[0][0].(string)
 	ts, _ := time.Parse(time.RFC3339, inter)
@@ -305,13 +324,14 @@ func main() {
 		//log.Printf("Value: %s", item.Value)
 	}
 
+	fmt.Println(len(itemValues))
 	fmt.Printf("Get:\n")
 	for i := range itemValues {
-		//print(i)
-		fmt.Printf("line:%d\n", i)
-		print(itemValues[i])
+		//fmt.Printf("line:%d\n", i)
+		fmt.Printf("%b ", itemValues[i])
 
 	}
+	fmt.Println()
 
 	// 在缓存中删除值
 	err = mc.Delete("mykey")

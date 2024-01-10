@@ -1,6 +1,7 @@
 package client
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -1003,47 +1004,47 @@ func TestGetSM(t *testing.T) {
 	tests := []struct {
 		name        string
 		queryString string
-		expected    []string
+		expected    string
 	}{
 		{
 			name:        "empty tag caused by having query results but no tags",
 			queryString: "SELECT water_level FROM h2o_feet WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z'",
-			expected:    []string{"empty tag"},
+			expected:    "{(h2o_feet.empty_tag)}",
 		},
 		{
 			name:        "empty tag caused by no query results",
 			queryString: "SELECT water_level FROM h2o_feet WHERE time >= '2024-08-18T00:00:00Z' AND time <= '2024-08-18T00:30:00Z'",
-			expected:    []string{"empty tag"},
+			expected:    "{empty result}",
 		},
 		{
 			name:        "one tag with two tables",
 			queryString: "SELECT water_level FROM h2o_feet WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY location",
-			expected:    []string{"(h2o_feet.location=coyote_creek)", "(h2o_feet.location=santa_monica)"},
+			expected:    "{(h2o_feet.location=coyote_creek)(h2o_feet.location=santa_monica)}",
 		},
 		{
 			name:        "two tags with six tables",
 			queryString: "SELECT index FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag,location",
-			expected:    []string{"(h2o_quality.location=coyote_creek)(h2o_quality.randtag=1)", "(h2o_quality.location=coyote_creek)(h2o_quality.randtag=2)", "(h2o_quality.location=coyote_creek)(h2o_quality.randtag=3)", "(h2o_quality.location=santa_monica)(h2o_quality.randtag=1)", "(h2o_quality.location=santa_monica)(h2o_quality.randtag=2)", "(h2o_quality.location=santa_monica)(h2o_quality.randtag=3)"},
+			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=1)(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)(h2o_quality.location=coyote_creek,h2o_quality.randtag=3)(h2o_quality.location=santa_monica,h2o_quality.randtag=1)(h2o_quality.location=santa_monica,h2o_quality.randtag=2)(h2o_quality.location=santa_monica,h2o_quality.randtag=3)}",
 		},
 		{
 			name:        "only time interval without tags",
 			queryString: "SELECT COUNT(water_level) FROM h2o_feet WHERE location='coyote_creek' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY time(12m)",
-			expected:    []string{"empty tag"},
+			expected:    "{(h2o_feet.empty_tag)}",
 		},
 		{
 			name:        "one specific tag with time interval",
 			queryString: "SELECT COUNT(water_level) FROM h2o_feet WHERE location='coyote_creek' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY time(12m),location",
-			expected:    []string{"(h2o_feet.location=coyote_creek)"},
+			expected:    "{(h2o_feet.location=coyote_creek)}",
 		},
 		{
 			name:        "one tag with time interval",
 			queryString: "SELECT COUNT(water_level) FROM h2o_feet WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY time(12m),location",
-			expected:    []string{"(h2o_feet.location=coyote_creek)", "(h2o_feet.location=santa_monica)"},
+			expected:    "{(h2o_feet.location=coyote_creek)(h2o_feet.location=santa_monica)}",
 		},
 		{
 			name:        "two tags with time interval",
 			queryString: "SELECT COUNT(index) FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY location,time(12m),randtag",
-			expected:    []string{"(h2o_quality.location=coyote_creek)(h2o_quality.randtag=1)", "(h2o_quality.location=coyote_creek)(h2o_quality.randtag=2)", "(h2o_quality.location=coyote_creek)(h2o_quality.randtag=3)", "(h2o_quality.location=santa_monica)(h2o_quality.randtag=1)", "(h2o_quality.location=santa_monica)(h2o_quality.randtag=2)", "(h2o_quality.location=santa_monica)(h2o_quality.randtag=3)"},
+			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=1)(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)(h2o_quality.location=coyote_creek,h2o_quality.randtag=3)(h2o_quality.location=santa_monica,h2o_quality.randtag=1)(h2o_quality.location=santa_monica,h2o_quality.randtag=2)(h2o_quality.location=santa_monica,h2o_quality.randtag=3)}",
 		},
 	}
 
@@ -1057,12 +1058,120 @@ func TestGetSM(t *testing.T) {
 			}
 
 			SM := GetSM(response)
-			for i := range SM {
-				if strings.Compare(SM[i], tt.expected[i]) != 0 {
-					t.Errorf("GetSM:query\t%s\nSM=%s\nexpected:%s", tt.queryString, SM[i], tt.expected[i])
-				}
+
+			if strings.Compare(SM, tt.expected) != 0 {
+				t.Errorf("GetSM:query\t%s\nSM=%s\nexpected:%s", tt.queryString, SM, tt.expected)
 			}
 
+		})
+	}
+
+}
+
+func TestGetSeperateSM(t *testing.T) {
+	c, err := NewHTTPClient(HTTPConfig{
+		Addr: "http://localhost:8086",
+		//Username: username,
+		//Password: password,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	tests := []struct {
+		name        string
+		queryString string
+		expected    []string
+	}{
+		{
+			name:        "empty Result",
+			queryString: "SELECT index FROM h2o_quality WHERE time >= '2029-08-18T00:00:00Z' AND time <= '2029-08-18T00:30:00Z' GROUP BY randtag,location",
+			expected:    []string{"{empty result}"},
+		},
+		{
+			name:        "empty tag",
+			queryString: "SELECT index FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z'",
+			expected:    []string{"{(h2o_quality.empty_tag)}"},
+		},
+		{
+			name:        "one table one tag",
+			queryString: "SELECT COUNT(water_level) FROM h2o_feet WHERE location='coyote_creek' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY time(12m),location",
+			expected: []string{
+				"{(h2o_feet.location=coyote_creek)}",
+			},
+		},
+		{
+			name:        "six tables two tags",
+			queryString: "SELECT COUNT(index) FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY location,time(12m),randtag",
+			expected: []string{
+				"{(h2o_quality.location=coyote_creek,h2o_quality.randtag=1)}",
+				"{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)}",
+				"{(h2o_quality.location=coyote_creek,h2o_quality.randtag=3)}",
+				"{(h2o_quality.location=santa_monica,h2o_quality.randtag=1)}",
+				"{(h2o_quality.location=santa_monica,h2o_quality.randtag=2)}",
+				"{(h2o_quality.location=santa_monica,h2o_quality.randtag=3)}",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			q := NewQuery(tt.queryString, MyDB, "")
+			resp, _ := c.Query(q)
+
+			sepSM := GetSeperateSM(resp)
+
+			for i, s := range sepSM {
+				if strings.Compare(s, tt.expected[i]) != 0 {
+					t.Errorf("seperate SM:%s", s)
+					t.Errorf("expected:%s", tt.expected[i])
+				}
+			}
+		})
+	}
+
+}
+
+func TestGetAggregation(t *testing.T) {
+	tests := []struct {
+		name        string
+		queryString string
+		expected    string
+	}{
+		{
+			name:        "error",
+			queryString: "SELECT ",
+			expected:    "error",
+		},
+		{
+			name:        "empty",
+			queryString: "SELECT     index,location,randtag FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z'",
+			expected:    "empty",
+		},
+		{
+			name:        "count",
+			queryString: "SELECT   COUNT(water_level)      FROM h2o_feet WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY time(12m)",
+			expected:    "count",
+		},
+		{
+			name:        "max",
+			queryString: "SELECT  MAX(water_level)   FROM h2o_feet WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY time(12m)",
+			expected:    "max",
+		},
+		{
+			name:        "mean",
+			queryString: "SELECT MEAN(water_level) FROM h2o_feet WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY time(12m)",
+			expected:    "mean",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			aggregation := GetAggregation(tt.queryString)
+			if strings.Compare(aggregation, tt.expected) != 0 {
+				t.Errorf("aggregation:%s", aggregation)
+				t.Errorf("expected:%s", tt.expected)
+			}
 		})
 	}
 
@@ -1379,95 +1488,82 @@ func TestSemanticSegment(t *testing.T) {
 	tests := []struct {
 		name        string
 		queryString string
-		expected    []string
+		expected    string
 	}{
 		{
 			name:        "without WHERE",
 			queryString: "SELECT index FROM h2o_quality",
-			expected:    []string{"{empty tag}#{time,index}#{empty}#{empty,empty}#{empty,empty}"},
+			expected:    "{(h2o_quality.empty_tag)}#{time,index}#{empty}#{empty,empty}#{empty,empty}",
 		},
 		{
 			name:        "SF SP",
 			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek'",
-			expected:    []string{"{empty tag}#{time,index}#{(location='coyote_creek'[string])}#{empty,empty}#{empty,empty}"},
+			expected:    "{(h2o_quality.empty_tag)}#{time,index}#{(location='coyote_creek'[string])}#{empty,empty}#{empty,empty}",
 		},
 		{
 			name:        "SF ST",
 			queryString: "SELECT index FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z'",
-			expected:    []string{"{empty tag}#{time,index}#{empty}#{1566086400000000000,1566088200000000000}#{empty,empty}"},
+			expected:    "{(h2o_quality.empty_tag)}#{time,index}#{empty}#{1566086400000000000,1566088200000000000}#{empty,empty}",
 		},
 		{
 			name:        "SF and half ST",
 			queryString: "SELECT index FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z'",
-			expected:    []string{"{empty tag}#{time,index}#{empty}#{1566086400000000000,empty}#{empty,empty}"},
+			expected:    "{(h2o_quality.empty_tag)}#{time,index}#{empty}#{1566086400000000000,empty}#{empty,empty}",
 		},
 		{
 			name:        "SF SP and half ST",
 			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek' AND  time >= '2019-08-18T00:00:00Z'",
-			expected:    []string{"{empty tag}#{time,index}#{(location='coyote_creek'[string])}#{1566086400000000000,empty}#{empty,empty}"},
+			expected:    "{(h2o_quality.empty_tag)}#{time,index}#{(location='coyote_creek'[string])}#{1566086400000000000,empty}#{empty,empty}",
 		},
 		{
 			name:        "SF SP ST",
 			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z'",
-			expected:    []string{"{empty tag}#{time,index}#{(location='coyote_creek'[string])}#{1566086400000000000,1566088200000000000}#{empty,empty}"},
+			expected:    "{(h2o_quality.empty_tag)}#{time,index}#{(location='coyote_creek'[string])}#{1566086400000000000,1566088200000000000}#{empty,empty}",
 		},
 		{
 			name:        "SM SF SP ST",
 			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag",
-			expected: []string{
-				"{(h2o_quality.randtag=1)}#{time,index}#{(location='coyote_creek'[string])}#{1566086400000000000,1566088200000000000}#{empty,empty}",
-				"{(h2o_quality.randtag=2)}#{time,index}#{(location='coyote_creek'[string])}#{1566086400000000000,1566088200000000000}#{empty,empty}",
-				"{(h2o_quality.randtag=3)}#{time,index}#{(location='coyote_creek'[string])}#{1566086400000000000,1566088200000000000}#{empty,empty}"},
+			expected:    "{(h2o_quality.randtag=1)(h2o_quality.randtag=2)(h2o_quality.randtag=3)}#{time,index}#{(location='coyote_creek'[string])}#{1566086400000000000,1566088200000000000}#{empty,empty}",
 		},
 		{
 			name:        "SM SF SP ST SG",
 			queryString: "SELECT MAX(water_level) FROM h2o_feet WHERE location='coyote_creek' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY location,time(12m)",
-			expected:    []string{"{(h2o_feet.location=coyote_creek)}#{time,water_level}#{(location='coyote_creek'[string])}#{1566086400000000000,1566088200000000000}#{max,12m}"},
+			expected:    "{(h2o_feet.location=coyote_creek)}#{time,water_level}#{(location='coyote_creek'[string])}#{1566086400000000000,1566088200000000000}#{max,12m}",
 		},
 		{
 			name:        "three fields without aggr",
 			queryString: "SELECT index,location,randtag FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z'",
-			expected:    []string{"{empty tag}#{time,index,location,randtag}#{empty}#{1566086400000000000,1566088200000000000}#{empty,empty}"},
+			expected:    "{(h2o_quality.empty_tag)}#{time,index,location,randtag}#{empty}#{1566086400000000000,1566088200000000000}#{empty,empty}",
 		},
 		{
 			name:        "SM three fields without aggr",
 			queryString: "SELECT index,location,randtag FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag",
-			expected: []string{
-				"{(h2o_quality.randtag=1)}#{time,index,location,randtag}#{empty}#{1566086400000000000,1566088200000000000}#{empty,empty}",
-				"{(h2o_quality.randtag=2)}#{time,index,location,randtag}#{empty}#{1566086400000000000,1566088200000000000}#{empty,empty}",
-				"{(h2o_quality.randtag=3)}#{time,index,location,randtag}#{empty}#{1566086400000000000,1566088200000000000}#{empty,empty}"},
+			expected:    "{(h2o_quality.randtag=1)(h2o_quality.randtag=2)(h2o_quality.randtag=3)}#{time,index,location,randtag}#{empty}#{1566086400000000000,1566088200000000000}#{empty,empty}",
 		},
 		{
 			name:        "SM SP three fields without aggr",
 			queryString: "SELECT index,location,randtag FROM h2o_quality WHERE location='coyote_creek' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag,location",
-			expected: []string{
-				"{(h2o_quality.location=coyote_creek)(h2o_quality.randtag=1)}#{time,index,location,randtag}#{(location='coyote_creek'[string])}#{1566086400000000000,1566088200000000000}#{empty,empty}",
-				"{(h2o_quality.location=coyote_creek)(h2o_quality.randtag=2)}#{time,index,location,randtag}#{(location='coyote_creek'[string])}#{1566086400000000000,1566088200000000000}#{empty,empty}",
-				"{(h2o_quality.location=coyote_creek)(h2o_quality.randtag=3)}#{time,index,location,randtag}#{(location='coyote_creek'[string])}#{1566086400000000000,1566088200000000000}#{empty,empty}"},
+			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=1)(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)(h2o_quality.location=coyote_creek,h2o_quality.randtag=3)}#{time,index,location,randtag}#{(location='coyote_creek'[string])}#{1566086400000000000,1566088200000000000}#{empty,empty}",
 		},
 		{
 			name:        "SM SP three fields three predicates",
 			queryString: "SELECT index,location,randtag FROM h2o_quality WHERE location='coyote_creek' AND randtag='2' AND index>50 AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag,location",
-			expected:    []string{"{(h2o_quality.location=coyote_creek)(h2o_quality.randtag=2)}#{time,index,location,randtag}#{(location='coyote_creek'[string])(randtag='2'[string])(index>50[int])}#{1566086400000000000,1566088200000000000}#{empty,empty}"},
+			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)}#{time,index,location,randtag}#{(location='coyote_creek'[string])(randtag='2'[string])(index>50[int])}#{1566086400000000000,1566088200000000000}#{empty,empty}",
 		},
 		{
 			name:        "SP SG aggregation and three predicates",
 			queryString: "SELECT COUNT(index) FROM h2o_quality WHERE location='coyote_creek' AND randtag='2' AND index>50 AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag,location,time(10s)",
-			expected:    []string{"{(h2o_quality.location=coyote_creek)(h2o_quality.randtag=2)}#{time,index}#{(location='coyote_creek'[string])(randtag='2'[string])(index>50[int])}#{1566086400000000000,1566088200000000000}#{count,10s}"},
+			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)}#{time,index}#{(location='coyote_creek'[string])(randtag='2'[string])(index>50[int])}#{1566086400000000000,1566088200000000000}#{count,10s}",
 		},
 		{
 			name:        "three predicates(OR)",
 			queryString: "SELECT water_level FROM h2o_feet WHERE location <> 'santa_monica' AND (water_level < -0.59 OR water_level > 9.95) AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-30T00:30:00Z' GROUP BY location",
-			expected:    []string{"{(h2o_feet.location=coyote_creek)}#{time,water_level}#{(location!='santa_monica'[string])(water_level<-0.590[double])(water_level>9.950[double])}#{1566086400000000000,1567125000000000000}#{empty,empty}"},
+			expected:    "{(h2o_feet.location=coyote_creek)}#{time,water_level}#{(location!='santa_monica'[string])(water_level<-0.590[double])(water_level>9.950[double])}#{1566086400000000000,1567125000000000000}#{empty,empty}",
 		},
 		{
 			name:        "time() and two tags",
 			queryString: "SELECT MAX(index) FROM h2o_quality WHERE randtag<>'1' AND index>=50 AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-20T00:30:00Z' GROUP BY location,time(12m),randtag",
-			expected: []string{
-				"{(h2o_quality.location=coyote_creek)(h2o_quality.randtag=2)}#{time,index}#{(randtag!='1'[string])(index>=50[int])}#{1566086400000000000,1566261000000000000}#{max,12m}",
-				"{(h2o_quality.location=coyote_creek)(h2o_quality.randtag=3)}#{time,index}#{(randtag!='1'[string])(index>=50[int])}#{1566086400000000000,1566261000000000000}#{max,12m}",
-				"{(h2o_quality.location=santa_monica)(h2o_quality.randtag=2)}#{time,index}#{(randtag!='1'[string])(index>=50[int])}#{1566086400000000000,1566261000000000000}#{max,12m}",
-				"{(h2o_quality.location=santa_monica)(h2o_quality.randtag=3)}#{time,index}#{(randtag!='1'[string])(index>=50[int])}#{1566086400000000000,1566261000000000000}#{max,12m}"},
+			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)(h2o_quality.location=coyote_creek,h2o_quality.randtag=3)(h2o_quality.location=santa_monica,h2o_quality.randtag=2)(h2o_quality.location=santa_monica,h2o_quality.randtag=3)}#{time,index}#{(randtag!='1'[string])(index>=50[int])}#{1566086400000000000,1566261000000000000}#{max,12m}",
 		},
 	}
 
@@ -1487,14 +1583,74 @@ func TestSemanticSegment(t *testing.T) {
 				log.Println(err)
 			}
 			ss := SemanticSegment(tt.queryString, response)
-			for i := range ss {
-				if !reflect.DeepEqual(ss[i], tt.expected[i]) {
-					t.Errorf("ss:\t%s\nexpected\t%s", ss[i], tt.expected[i])
+			if !reflect.DeepEqual(ss, tt.expected) {
+				t.Errorf("ss:\t%s\nexpected\t%s", ss, tt.expected)
+			}
+
+		})
+	}
+}
+
+func TestSeperateSemanticSegment(t *testing.T) {
+	c, err := NewHTTPClient(HTTPConfig{
+		Addr: "http://localhost:8086",
+		//Username: username,
+		//Password: password,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	tests := []struct {
+		name        string
+		queryString string
+		expected    []string
+	}{
+		{
+			name:        "empty tag",
+			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z'",
+			expected: []string{
+				"{(h2o_quality.empty_tag)}#{time,index}#{(location='coyote_creek'[string])}#{1566086400000000000,1566088200000000000}#{empty,empty}",
+			},
+		},
+		{
+			name:        "four tables two tags",
+			queryString: "SELECT MAX(index) FROM h2o_quality WHERE randtag<>'1' AND index>=50 AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-20T00:30:00Z' GROUP BY location,time(12m),randtag",
+			expected: []string{
+				"{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)}#{time,index}#{(randtag!='1'[string])(index>=50[int])}#{1566086400000000000,1566261000000000000}#{max,12m}",
+				"{(h2o_quality.location=coyote_creek,h2o_quality.randtag=3)}#{time,index}#{(randtag!='1'[string])(index>=50[int])}#{1566086400000000000,1566261000000000000}#{max,12m}",
+				"{(h2o_quality.location=santa_monica,h2o_quality.randtag=2)}#{time,index}#{(randtag!='1'[string])(index>=50[int])}#{1566086400000000000,1566261000000000000}#{max,12m}",
+				"{(h2o_quality.location=santa_monica,h2o_quality.randtag=3)}#{time,index}#{(randtag!='1'[string])(index>=50[int])}#{1566086400000000000,1566261000000000000}#{max,12m}",
+			},
+		},
+		{
+			name:        "three table one tag",
+			queryString: "SELECT index,location,randtag FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag",
+			expected: []string{
+				"{(h2o_quality.randtag=1)}#{time,index,location,randtag}#{empty}#{1566086400000000000,1566088200000000000}#{empty,empty}",
+				"{(h2o_quality.randtag=2)}#{time,index,location,randtag}#{empty}#{1566086400000000000,1566088200000000000}#{empty,empty}",
+				"{(h2o_quality.randtag=3)}#{time,index,location,randtag}#{empty}#{1566086400000000000,1566088200000000000}#{empty,empty}",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			q := NewQuery(tt.queryString, MyDB, "")
+			resp, _ := c.Query(q)
+
+			sepSemanticSegment := SeperateSemanticSegment(tt.queryString, resp)
+
+			for i, s := range sepSemanticSegment {
+				if strings.Compare(s, tt.expected[i]) != 0 {
+					t.Errorf("semantic segment:%s", s)
+					t.Errorf("expected:%s", tt.expected[i])
 				}
 			}
 
 		})
 	}
+
 }
 
 func TestGetTagArr(t *testing.T) {
@@ -1553,17 +1709,17 @@ func TestGetResponseTimeRange(t *testing.T) {
 	tests := []struct {
 		name        string
 		queryString string
-		expected    []uint64
+		expected    []int64
 	}{
 		{
 			name:        "common situation",
 			queryString: "SELECT index FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag",
-			expected:    []uint64{1566086400000000000, 1566261000000000000},
+			expected:    []int64{1566086400000000000, 1566261000000000000},
 		},
 		{
 			name:        "no results",
 			queryString: "SELECT index FROM h2o_quality WHERE time >= '2029-08-18T00:00:00Z' AND time <= '2029-08-18T00:30:00Z' GROUP BY randtag",
-			expected:    []uint64{math.MaxInt64, 0},
+			expected:    []int64{math.MaxInt64, 0},
 		},
 	}
 
@@ -2444,8 +2600,8 @@ func TestMerge(t *testing.T) {
 	//当前时间间隔设置为 1 min,	上面的五个结果中，resp1和resp2、resp4和resp5 理论上可以合并，实际上resp1和resp2的起止时间之差超过了误差范围，不能合并
 	// 时间间隔设置为 1h 时，可以合并	暂时修改为 1h
 	fmt.Printf("st5 - et4:%d\t\n", st5-et4)
-	fmt.Println("(st5-et4)>uint64(time.Minute):", (st5-et4) > uint64(time.Minute))
-	fmt.Println("(st5-et4)>uint64(time.Hour):", (st5-et4) > uint64(time.Hour))
+	fmt.Println("(st5-et4)>int64(time.Minute):", (st5-et4) > time.Minute.Nanoseconds())
+	fmt.Println("(st5-et4)>int64(time.Hour):", (st5-et4) > time.Hour.Nanoseconds())
 
 	tests := []struct {
 		name     string
@@ -3181,6 +3337,241 @@ func TestMergeSeries2(t *testing.T) {
 			}
 
 		})
+	}
+}
+
+func TestStringToByteArray(t *testing.T) {
+	tests := []struct {
+		name     string
+		str      string
+		expected []byte
+	}{
+		{
+			name:     "empty",
+			str:      "",
+			expected: []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		},
+		{
+			name:     "normal",
+			str:      "SCHEMA ",
+			expected: []byte{83, 67, 72, 69, 77, 65, 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		},
+		{
+			name:     "white spaces",
+			str:      "          ",
+			expected: []byte{32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		}, {
+			name:     "CRLF",
+			str:      "a\r\ns\r\nd\r\n",
+			expected: []byte{97, 13, 10, 115, 13, 10, 100, 13, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		}, {
+			name:     "normal2",
+			str:      "asd zxc",
+			expected: []byte{97, 115, 100, 32, 122, 120, 99, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		},
+		{
+			name:     "symbols",
+			str:      "-=.,/\\][()!@#$%^&*?\":",
+			expected: []byte{45, 61, 46, 44, 47, 92, 93, 91, 40, 41, 33, 64, 35, 36, 37, 94, 38, 42, 63, 34, 58, 0, 0, 0, 0},
+		},
+		{
+			name:     "length out of range(25)",
+			str:      "AaaaBbbbCcccDdddEeeeFfffGggg",
+			expected: []byte{65, 97, 97, 97, 66, 98, 98, 98, 67, 99, 99, 99, 68, 100, 100, 100, 69, 101, 101, 101, 70, 102, 102, 102, 71},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			byteArray := StringToByteArray(tt.str)
+
+			if !bytes.Equal(byteArray, tt.expected) {
+				t.Errorf("byte array:%d", byteArray)
+				t.Errorf("expected:%b", tt.expected)
+			}
+
+			fmt.Printf("expected:%d\n", tt.expected)
+		})
+	}
+
+}
+
+func TestByteArrayToString(t *testing.T) {
+	tests := []struct {
+		name      string
+		expected  string
+		byteArray []byte
+	}{
+		{
+			name:      "empty",
+			expected:  "",
+			byteArray: []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		},
+		{
+			name:      "normal",
+			expected:  "SCHEMA ",
+			byteArray: []byte{83, 67, 72, 69, 77, 65, 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		},
+		{
+			name:      "white spaces",
+			expected:  "          ",
+			byteArray: []byte{32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		}, {
+			name:      "CRLF",
+			expected:  "a\r\ns\r\nd\r\n",
+			byteArray: []byte{97, 13, 10, 115, 13, 10, 100, 13, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		}, {
+			name:      "normal2",
+			expected:  "asd zxc",
+			byteArray: []byte{97, 115, 100, 32, 122, 120, 99, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		},
+		{
+			name:      "symbols",
+			expected:  "-=.,/\\][()!@#$%^&*?\":",
+			byteArray: []byte{45, 61, 46, 44, 47, 92, 93, 91, 40, 41, 33, 64, 35, 36, 37, 94, 38, 42, 63, 34, 58, 0, 0, 0, 0},
+		},
+		{
+			name:      "length out of range(25)",
+			expected:  "AaaaBbbbCcccDdddEeeeFfffG",
+			byteArray: []byte{65, 97, 97, 97, 66, 98, 98, 98, 67, 99, 99, 99, 68, 100, 100, 100, 69, 101, 101, 101, 70, 102, 102, 102, 71},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			str := ByteArrayToString(tt.byteArray)
+
+			if strings.Compare(str, tt.expected) != 0 {
+				t.Errorf("string:%s", str)
+				t.Errorf("expected:%s", tt.expected)
+			}
+
+			fmt.Printf("string:%s\n", str)
+		})
+	}
+}
+
+func TestInt64ToByteArray(t *testing.T) {
+	numbers := []int64{123, 2000300, 100020003000, 10000200030004000, 101001000100101010, 9000800070006000500, 1566088200000000000}
+	expected := [][]byte{
+		{0, 0, 0, 0, 0, 0, 0, 123},
+		{0, 0, 0, 0, 0, 30, 133, 172},
+		{0, 0, 0, 23, 73, 168, 32, 184},
+		{0, 35, 135, 33, 2, 120, 163, 32},
+		{1, 102, 211, 223, 220, 236, 251, 146},
+		{124, 233, 67, 249, 179, 4, 203, 116},
+		{21, 187, 220, 235, 159, 238, 80, 0},
+	}
+
+	for i := range numbers {
+		bytesArray, err := Int64ToByteArray(numbers[i])
+		if err != nil {
+			fmt.Errorf(err.Error())
+		}
+		if !bytes.Equal(bytesArray, expected[i]) {
+			t.Errorf("byte array:%d", bytesArray)
+			t.Errorf("expected:%d", expected[i])
+		}
+		fmt.Printf("expected:%b\n", expected[i])
+	}
+}
+
+func TestByteArrayToInt64(t *testing.T) {
+	expected := []int64{0, 0, 123, 2000300, 100020003000, 10000200030004000, 101001000100101010, 9000800070006000500}
+	byteArrays := [][]byte{
+		{0, 0, 0, 0, 0, 123},
+		{0, 0, 0, 0, 0, 0, 0, 0},
+		{0, 0, 0, 0, 0, 0, 0, 123},
+		{0, 0, 0, 0, 0, 30, 133, 172},
+		{0, 0, 0, 23, 73, 168, 32, 184},
+		{0, 35, 135, 33, 2, 120, 163, 32},
+		{1, 102, 211, 223, 220, 236, 251, 146},
+		{124, 233, 67, 249, 179, 4, 203, 116},
+	}
+
+	for i := range byteArrays {
+		number, err := ByteArrayToInt64(byteArrays[i])
+		if err != nil {
+			fmt.Printf(err.Error())
+		}
+		if number != expected[i] {
+			t.Errorf("number:%d", number)
+			t.Errorf("expected:%d", expected[i])
+		}
+		fmt.Printf("number:%d\n", number)
+	}
+
+}
+
+func TestFloat64ToByteArray(t *testing.T) {
+	numbers := []float64{0, 123, 123.4, 12.34, 123.456, 1.2345, 12.34567, 123.456789, 123.4567890, 0.00}
+	expected := [][]byte{
+		{0, 0, 0, 0, 0, 0, 0, 0},
+		{64, 94, 192, 0, 0, 0, 0, 0},
+		{64, 94, 217, 153, 153, 153, 153, 154},
+		{64, 40, 174, 20, 122, 225, 71, 174},
+		{64, 94, 221, 47, 26, 159, 190, 119},
+		{63, 243, 192, 131, 18, 110, 151, 141},
+		{64, 40, 176, 251, 168, 130, 106, 169},
+		{64, 94, 221, 60, 7, 238, 11, 11},
+		{64, 94, 221, 60, 7, 238, 11, 11},
+		{0, 0, 0, 0, 0, 0, 0, 0},
+	}
+
+	for i := range numbers {
+		bytesArray, err := Float64ToByteArray(numbers[i])
+		if err != nil {
+			fmt.Println(err.Error())
+		}
+		if !bytes.Equal(bytesArray, expected[i]) {
+			t.Errorf("byte array:%b", bytesArray)
+			t.Errorf("expected:%b", expected[i])
+		}
+		fmt.Printf("expected:%b\n", expected[i])
+	}
+
+}
+
+func TestByteArrayToFloat64(t *testing.T) {
+	expected := []float64{0, 123, 123.4, 12.34, 123.456, 1.2345, 12.34567, 123.456789, 123.4567890, 0.00, 0.0}
+	byteArrays := [][]byte{
+		{0, 0, 0, 0, 0, 0, 0, 0},
+		{64, 94, 192, 0, 0, 0, 0, 0},
+		{64, 94, 217, 153, 153, 153, 153, 154},
+		{64, 40, 174, 20, 122, 225, 71, 174},
+		{64, 94, 221, 47, 26, 159, 190, 119},
+		{63, 243, 192, 131, 18, 110, 151, 141},
+		{64, 40, 176, 251, 168, 130, 106, 169},
+		{64, 94, 221, 60, 7, 238, 11, 11},
+		{64, 94, 221, 60, 7, 238, 11, 11},
+		{0, 0, 0, 0, 0, 0, 0, 0},
+		{0, 0, 0},
+	}
+
+	for i := range byteArrays {
+		var number float64
+		number, err := ByteArrayToFloat64(byteArrays[i])
+		if err != nil {
+			fmt.Println(err)
+		}
+		if number != expected[i] {
+			t.Errorf("number:%f", number)
+			t.Errorf("expected:%f", expected[i])
+		}
+		fmt.Printf("number:%f\n", number)
+	}
+
+}
+
+func TestTimeStringToInt64(t *testing.T) {
+	timeStrings := []string{"2019-08-18T00:00:00Z", "2000-01-01T00:00:00Z", "2261-01-01T00:00:00Z"}
+	expected := []int64{1566086400000000000, 946684800000000000, 9183110400000000000}
+	for i := range timeStrings {
+		numberN := TimeStringToInt64(timeStrings[i])
+		if numberN != expected[i] {
+			t.Errorf("timestamp:%s", timeStrings[i])
+			t.Errorf("number:%d", numberN)
+		}
 	}
 }
 

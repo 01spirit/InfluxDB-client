@@ -827,7 +827,7 @@ func Merge(precision string, resps ...*Response) []*Response {
 	default:
 		timePrecision = time.Hour
 	}
-	timeRange := uint64(timePrecision)
+	timeRange := timePrecision.Nanoseconds()
 
 	/* 按时间排序，去除空的结果 */
 	resps = SortResponses(resps)
@@ -878,8 +878,8 @@ func Merge(precision string, resps ...*Response) []*Response {
 // 用于对结果排序的结构体
 type RespWithTimeRange struct {
 	resp      *Response
-	startTime uint64
-	endTime   uint64
+	startTime int64
+	endTime   int64
 }
 
 /* 传入一组查询结果，构造成用于排序的结构体，对不为空的结果按时间升序进行排序，返回结果数组 */
@@ -1125,9 +1125,9 @@ func MergeResultTable(resp1, resp2 *Response) *Response {
 /* 获取查询结果的时间范围 */
 // 从 response 中取数据，可以确保起止时间都有，只需要进行类型转换
 // done todo 一个查询结果的多张表的起止时间可能是不同的，是否需要找到所有表的最小和最大时间
-func GetResponseTimeRange(resp *Response) (uint64, uint64) {
-	var minStartTime uint64
-	var maxEndTime uint64
+func GetResponseTimeRange(resp *Response) (int64, int64) {
+	var minStartTime int64
+	var maxEndTime int64
 
 	minStartTime = math.MaxInt64
 	maxEndTime = 0
@@ -1140,10 +1140,13 @@ func GetResponseTimeRange(resp *Response) (uint64, uint64) {
 		et := end.(string)
 
 		/* 转换成 uint64 计算时间误差 */
-		tsst, _ := time.Parse(time.RFC3339, st) //字符串转换成时间戳	转换的格式layout必须是这个时间，不能改
-		tset, _ := time.Parse(time.RFC3339, et)
-		uist := uint64(tsst.UnixNano()) //时间戳转换成 uint64 , 纳秒精度
-		uiet := uint64(tset.UnixNano())
+		//tsst, _ := time.Parse(time.RFC3339, st) //字符串转换成时间戳	转换的格式layout必须是这个时间，不能改
+		//tset, _ := time.Parse(time.RFC3339, et)
+		//uist := tsst.UnixNano() //时间戳转换成 int64 , 纳秒精度
+		//uiet := tset.UnixNano()
+
+		uist := TimeStringToInt64(st)
+		uiet := TimeStringToInt64(et)
 
 		/* 更新起止时间范围 	两个时间可能不在一个表中 ? */
 		if minStartTime > uist {
@@ -1160,25 +1163,25 @@ func GetResponseTimeRange(resp *Response) (uint64, uint64) {
 /*
 SemanticSegment 根据查询语句和数据库返回数据组成字段，用作存入cache的key
 */
-func SemanticSegment(queryString string, response *Response) []string {
+func SemanticSegment(queryString string, response *Response) string {
 	SM := GetSM(response)
 	SPST := GetSPST(queryString)
 	Interval := GetInterval(queryString)
 	SF, Aggr := GetSFSG(queryString)
 
-	//var result string
-	//result = fmt.Sprintf("%s#{%s}#%s#{%s,%s}", SM, SF, SPST, Aggr, Interval)
+	var result string
+	result = fmt.Sprintf("%s#{%s}#%s#{%s,%s}", SM, SF, SPST, Aggr, Interval)
 
-	var resultArr []string
-	for i := range SM {
-		str := fmt.Sprintf("{%s}#{%s}#%s#{%s,%s}", SM[i], SF, SPST, Aggr, Interval)
-		resultArr = append(resultArr, str)
-	}
+	//var resultArr []string
+	//for i := range SM {
+	//	str := fmt.Sprintf("{%s}#{%s}#%s#{%s,%s}", SM[i], SF, SPST, Aggr, Interval)
+	//	resultArr = append(resultArr, str)
+	//}
 
-	return resultArr
+	return result
 }
 
-/* 判断结果是否为空，并提取出tags数组，用于规范tag map的输出顺序 */
+// GetTagNameArr /* 判断结果是否为空，并提取出tags数组，用于规范tag map的输出顺序 */
 func GetTagNameArr(resp *Response) []string {
 	tagArr := make([]string, 0)
 	if resp == nil || len(resp.Results[0].Series) == 0 {
@@ -1198,7 +1201,7 @@ func GetTagNameArr(resp *Response) []string {
 
 // GetSM get measurement's name and tags
 // func GetSM(queryString string, resp *Response) string {
-func GetSM(resp *Response) []string {
+func GetSM(resp *Response) string {
 	var result string
 	var tagArr []string
 
@@ -1208,43 +1211,185 @@ func GetSM(resp *Response) []string {
 	//s := stmt.(*influxql.SelectStatement)
 	//_, tagArr = s.Dimensions.Normalize()
 
+	if ResponseIsEmpty(resp) {
+		return "{empty result}"
+	}
+
 	tagArr = GetTagNameArr(resp)
 
 	// 格式： {(name.tag_key=tag_value)...}
 	// 有查询结果 且 结果中有tag	当结果为空或某些使用聚合函数的情况都会输出 "empty tag"
 	//if len(resp.Results[0].Series) > 0 && len(resp.Results[0].Series[0].Tags) > 0 {
 	if len(tagArr) > 0 {
-		//result += "{"
-		for r := range resp.Results { //包括 Statement_id , Series[] , Messages[] , Error	只用了 Series[]
+		result += "{"
 
-			/* 遍历查询结果的所有表 */
-			for s := range resp.Results[r].Series { //包括  measurement name, GROUP BY tags, Columns[] , Values[][], partial		只用了 Columns[]和 Values[][]
-
-				measurementName := resp.Results[r].Series[s].Name
-
-				for _, tagName := range tagArr {
-					result += fmt.Sprintf("(%s.%s=%s)", measurementName, tagName, resp.Results[r].Series[s].Tags[tagName])
-				}
-				result += " " //不同表之间用空格分隔
-
+		for _, s := range resp.Results[0].Series {
+			result += "("
+			measurementName := s.Name
+			for _, tagName := range tagArr {
+				result += fmt.Sprintf("%s.%s=%s,", measurementName, tagName, s.Tags[tagName])
 			}
-
+			result = result[:len(result)-1]
+			result += ")"
 		}
+
 	} else {
-		return []string{"empty tag"}
+		measurementName := resp.Results[0].Series[0].Name
+		result += fmt.Sprintf("{(%s.empty_tag)}", measurementName)
+		return result
 	}
 
-	result = result[:len(result)-1] //去掉最后的空格
-	//result += "}"                   //标志转换结束
+	//result = result[:len(result)-1] //去掉最后的空格
+	result += "}" //标志转换结束
 
-	resArr := strings.Split(result, " ")
-
-	return resArr
+	return result
 }
 
-/* 从查询语句中获取fields和聚合函数 */
+/* 分别返回每张表的tag */
+func GetSeperateSM(resp *Response) []string {
+	var result []string
+	var tagArr []string
+
+	if ResponseIsEmpty(resp) {
+		return []string{"{empty result}"}
+	}
+
+	tagArr = GetTagNameArr(resp)
+
+	if len(tagArr) == 0 {
+		tmp := fmt.Sprintf("{(%s.empty_tag)}", resp.Results[0].Series[0].Name)
+		result = append(result, tmp)
+		return result
+	} else {
+		for _, s := range resp.Results[0].Series {
+			var tmp string
+			tmp += "{("
+			measurementName := s.Name
+			for _, t := range tagArr {
+				tmp += fmt.Sprintf("%s.%s=%s,", measurementName, t, s.Tags[t])
+			}
+			tmp = tmp[:len(tmp)-1]
+			tmp += ")}"
+			result = append(result, tmp)
+		}
+	}
+	return result
+}
+
+func SeperateSemanticSegment(queryString string, resp *Response) []string {
+	SepSM := GetSeperateSM(resp)
+	SF, SG := GetSFSG(queryString)
+	SPST := GetSPST(queryString)
+	Interval := GetInterval(queryString)
+
+	var resultArr []string
+	for i := range SepSM {
+		str := fmt.Sprintf("%s#{%s}#%s#{%s,%s}", SepSM[i], SF, SPST, SG, Interval)
+		resultArr = append(resultArr, str)
+	}
+
+	return resultArr
+}
+
+// GetAggregation  从查询语句中获取聚合函数
+func GetAggregation(queryString string) string {
+	/* 用正则匹配取出包含 列名 和 聚合函数 的字符串  */
+	regStr := `(?i)SELECT\s*(.+)\s*FROM.+`
+	regExpr := regexp.MustCompile(regStr)
+	var FGstr string
+	if ok, _ := regexp.MatchString(regStr, queryString); ok {
+		match := regExpr.FindStringSubmatch(queryString)
+		FGstr = match[1] // fields and aggr
+	} else {
+		return "error"
+	}
+
+	/* 从字符串中截取出聚合函数 */
+	var aggr string
+	if strings.IndexAny(FGstr, ")") > 0 {
+		index := strings.IndexAny(FGstr, "(")
+		aggr = FGstr[:index]
+		aggr = strings.ToLower(aggr)
+	} else {
+		return "empty"
+	}
+
+	return aggr
+}
+
+// GetSFSGWithDataType todo : 重写，包含数据类型和列名
+func GetSFSGWithDataType(queryString string, resp *Response) (string, string) {
+	var fields []string
+	var FGstr string
+
+	/* 用正则匹配从查询语句中取出包含聚合函数和列名的字符串  */
+	regStr := `(?i)SELECT\s*(.+)\s*FROM.+`
+	regExpr := regexp.MustCompile(regStr)
+
+	if ok, _ := regexp.MatchString(regStr, queryString); ok {
+		match := regExpr.FindStringSubmatch(queryString)
+		FGstr = match[1] // fields and aggr
+	} else {
+		return "error", "error"
+	}
+
+	var aggr string
+	if strings.IndexAny(FGstr, ")") > 0 {
+		/* 获取聚合函数 */
+		index := strings.IndexAny(FGstr, "(")
+		aggr = FGstr[:index]
+		aggr = strings.ToLower(aggr)
+
+		/* 从查询语句获取列名 */
+		fields = append(fields, "time")
+		var startIdx int
+		var endIdx int
+		for idx, ch := range FGstr { // 括号中间的部分是fields，默认没有双引号，不作处理
+			if ch == '(' {
+				startIdx = idx + 1
+			}
+			if ch == ')' {
+				endIdx = idx
+			}
+		}
+		tmpStr := FGstr[startIdx:endIdx]
+		tmpArr := strings.Split(tmpStr, ",")
+		fields = append(fields, tmpArr...)
+	} else {
+		aggr = "empty"
+		/* 从Response获取列名 */
+		for _, c := range resp.Results[0].Series[0].Columns {
+			fields = append(fields, c)
+		}
+	}
+
+	/* todo 从Response获取数据类型 */
+	for i, value := range resp.Results[0].Series[0].Values[0] {
+		if i == 0 {
+			fields[i] += "[int64]"
+		} else if _, ok := value.(string); ok {
+			fields[i] += "[string]"
+		} else if v, ok := value.(json.Number); ok {
+			if _, err := v.Int64(); err == nil {
+				fields[i] += "[int64]"
+			} else if _, err := v.Float64(); err == nil {
+				fields[i] += "[float64]"
+			} else {
+				fields[i] += "[string]"
+			}
+		} else if _, ok := value.(bool); ok {
+			fields[i] += "[bool]"
+		}
+	}
+
+	var fieldsStr string
+	fieldsStr = strings.Join(fields, ",")
+
+	return fieldsStr, aggr
+}
+
 func GetSFSG(query string) (string, string) {
-	regStr := `(?i)SELECT (.+) FROM.+`
+	regStr := `(?i)SELECT\s*(.+)\s*FROM.+`
 	regExpr := regexp.MustCompile(regStr)
 	var FGstr string
 	if ok, _ := regexp.MatchString(regStr, query); ok { // 取出 fields 和 聚合函数aggr
@@ -1257,7 +1402,7 @@ func GetSFSG(query string) (string, string) {
 	var flds string
 	var aggr string
 
-	if strings.HasSuffix(FGstr, ")") { // 如果这部分有括号，说明有聚合函数 ?
+	if strings.IndexAny(FGstr, ")") > 0 { // 如果这部分有括号，说明有聚合函数 ?
 		/* get aggr */
 		fields := influxql.Fields{}
 		expr, err := influxql.NewParser(strings.NewReader(FGstr)).ParseExpr()
@@ -1267,19 +1412,6 @@ func GetSFSG(query string) (string, string) {
 		fields = append(fields, &influxql.Field{Expr: expr})
 		aggrs := fields.Names()
 		aggr = strings.Join(aggrs, ",") //获取聚合函数
-
-		/*
-			//用字符串处理聚合函数
-				var index int
-				for i, s := range FGstr {
-					if reflect.DeepEqual(s, "(") {	// 括号前面的是聚合函数
-						index = i
-						break
-					}
-				}
-				aggr = FGstr[ : index]
-				aggr = strings.ToLower(aggr)
-		*/
 
 		/* get fields */
 		flds += "time,"
@@ -1326,10 +1458,10 @@ func GetSPST(query string) string {
 
 	start_time := timeRange.MinTime() //获取起止时间
 	end_time := timeRange.MaxTime()
-	uint_start_time := uint64(start_time.UnixNano()) //时间戳转换成 uint64 , 纳秒精度
-	uint_end_time := uint64(end_time.UnixNano())
-	string_start_time := strconv.FormatUint(uint_start_time, 10) // 转换成字符串
-	string_end_time := strconv.FormatUint(uint_end_time, 10)
+	uint_start_time := start_time.UnixNano() //时间戳转换成 uint64 , 纳秒精度
+	uint_end_time := end_time.UnixNano()
+	string_start_time := strconv.FormatInt(uint_start_time, 10) // 转换成字符串
+	string_end_time := strconv.FormatInt(uint_end_time, 10)
 
 	// 判断时间戳合法性：19位数字，转换成字符串之后第一位是 1	时间范围是 2001-09-09 09:46:40 +0800 CST 到 2033-05-18 11:33:20 +0800 CST	（ 1 * 10^18 ~ 2 * 10^18 ns）
 	if len(string_start_time) != 19 || string_start_time[0:1] != "1" {
@@ -1481,9 +1613,9 @@ func (resp *Response) ToString() string {
 					} else if jsonNumber, ok := resp.Results[r].Series[s].Values[v][vv].(json.Number); ok {
 						str := jsonNumber.String()
 						result += str
-						jsonNumber.String()
+						//jsonNumber.String()
 					} else {
-						result += "N"
+						result += "#"
 					}
 					result += " " // 一行 Value 的数据之间用空格分隔
 				}
@@ -1531,14 +1663,24 @@ func (resp *Response) ToByteArray() []byte {
 					jnI, err := jsonNumber.Int64()
 					if err == nil {
 						//  todo : int to []byte
-						bytesBuffer := bytes.NewBuffer([]byte{})
-						binary.Write(bytesBuffer, binary.BigEndian, &jnI)
-						result = append(result, bytesBuffer.Bytes()...)
+						byteArrayInt, err := Int64ToByteArray(jnI)
+						if err != nil {
+							log.Fatal(err)
+						} else {
+							result = append(result, byteArrayInt...)
+						}
+
 					} else {
 						jnF, err := jsonNumber.Float64()
 						if err == nil {
 							// todo : float to []byte
-							result = append(result, byte(jnF))
+							byteArrayFloat, err := Float64ToByteArray(jnF)
+							if err != nil {
+								log.Fatal(err)
+							} else {
+								result = append(result, byteArrayFloat...)
+							}
+
 						} else {
 							fmt.Errorf(err.Error())
 						}
@@ -1565,3 +1707,106 @@ func (resp *Response) ToByteArray() []byte {
 	result = append(result, []byte("end")...)
 	return result
 }
+
+func StringToByteArray(str string) []byte {
+	byteArray := make([]byte, 0, 25)
+	byteStr := []byte(str)
+	if len(byteStr) > 25 {
+		return byteStr[:25]
+	}
+	byteArray = append(byteArray, byteStr...)
+	for i := 0; i < cap(byteArray)-len(byteStr); i++ {
+		byteArray = append(byteArray, 0)
+	}
+
+	return byteArray
+}
+
+func ByteArrayToString(byteArray []byte) string {
+	byteArray = bytes.Trim(byteArray, string(byte(0)))
+	str := string(byteArray)
+	return str
+}
+
+func Int64ToByteArray(number int64) ([]byte, error) {
+	byteBuffer := bytes.NewBuffer([]byte{})
+	err := binary.Write(byteBuffer, binary.BigEndian, &number)
+	if err != nil {
+		return nil, err
+	}
+	return byteBuffer.Bytes(), nil
+}
+
+func ByteArrayToInt64(byteArray []byte) (int64, error) {
+	if len(byteArray) != 8 {
+		return 0, errors.New("incorrect length of byte array, can not convert []byte to int64\n")
+	}
+	var number int64
+	byteBuffer := bytes.NewBuffer(byteArray)
+	err := binary.Read(byteBuffer, binary.BigEndian, &number)
+	if err != nil {
+		return 0, err
+	}
+	return number, nil
+}
+
+func Float64ToByteArray(number float64) ([]byte, error) {
+	byteBuffer := bytes.NewBuffer([]byte{})
+	err := binary.Write(byteBuffer, binary.BigEndian, &number)
+	if err != nil {
+		return nil, err
+	}
+	return byteBuffer.Bytes(), nil
+}
+
+func ByteArrayToFloat64(byteArray []byte) (float64, error) {
+	if len(byteArray) != 8 {
+		return 0, errors.New("incorrect length of byte array, can not canvert []byte to float64\n")
+	}
+	var number float64
+	byteBuffer := bytes.NewBuffer(byteArray)
+	err := binary.Read(byteBuffer, binary.BigEndian, &number)
+	if err != nil {
+		return 0.0, err
+	}
+	return number, nil
+}
+
+func TimeStringToInt64(timestamp string) int64 {
+	timeT, _ := time.Parse(time.RFC3339, timestamp)
+	numberN := timeT.UnixNano()
+
+	return numberN
+}
+
+// todo : 1.把数据转为对应数量的byte 2.根据series确定SF的数据类型。3.把转化好的byte传入fatcache中再取出，转为result
+/*
+	1.数据类型有4种：string/int64/float64/bool
+		字节数：		25/8/8/1
+	2.SF保存查寻结果中的所有列的列名和数据类型
+		根据这里的数据类型决定数据占用的字节数，以及把字节数组转换成什么数据类型
+		SF有两种可能：不使用聚合函数时，包含所有 SELECT 的 tag 和 field，
+					使用聚合函数时，列名可能是 MAX、MEAN 之类的，需要从 SELECT 语句中取出字段名
+		数据类型根据从结果中取的第一行数据进行判断，数据有 string、bool、json.Number 三种类型
+			需要把 json.Number 转换成 int64 或 float64
+			暂时方法：看能否进行类型转换，能转换成 int64 就是 int64， 否则是 float64 （?）	// todo 验证该方法是否可行
+
+			json.Number的 int64 可以转换成 float64； float64 不能转成  int64
+			底层调用了 strconv.ParseInt() 和 strconv.ParseFloat() ,// todo 什么原理
+
+	3.暂时把所有表的数据看成一张表的，测试能否成功转换
+		然后处理成和cache交互的具体格式
+		交互：
+			set key(semantic segment) start_time end_time SLen(num of series)
+			SM1(first series' tags) VLen1(num of the series' values' byte)
+			values([]byte)	(自己测试暂时加上换行符，之后交互时只传数据)
+			SM2(second series) VLen2
+			values([byte])
+	数据转换时根据SF的数据类型读取相应数量的字节，然后转换
+
+	result结构是数组嵌套，根据 semantic segment 获取其他元数据之后，通过从字节数组中解析出具体数据完成结果类型转换
+	memcache Get() 返回 byte array ，存放在 []byte(itemValues) 中，把字节数组转换成字符串和数字类型，组合成Response结构
+*/
+
+// todo : byte array (and semantic segment?) to Response struct
+//func ByteArrayToResponse(byteArray []byte) (*Response, error)
