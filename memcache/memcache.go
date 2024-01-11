@@ -194,6 +194,8 @@ type Item struct {
 	Time_start uint64
 
 	Time_end uint64
+
+	NumOfTables int64
 }
 
 // get/set key 1 2 3 12 34
@@ -590,7 +592,7 @@ func parseGetResponse(r *bufio.Reader, itemValues *[]byte, cb func(*Item)) (err 
 			return fmt.Errorf("memcache: corrupt get result read")
 		}
 		cb(it)
-		//fmt.Printf("%s", it.Value)
+
 		*itemValues = append(*itemValues, it.Value...)
 	}
 }
@@ -713,10 +715,11 @@ func (c *Client) populateOne(rw *bufio.ReadWriter, verb string, item *Item) erro
 		_, err = fmt.Fprintf(rw, "%s %s %d %d %d %d\r\n", //格式化的第一个元素表示命令（verb），后面的元素是命令中的参数
 			verb, item.Key, item.Flags, item.Expiration, len(item.Value), item.CasID)
 	} else { //   set
-		//_, err = fmt.Fprintf(rw, "%s %s %d %d %d %d %d\r\n", //用item的基本信息构建命令的第一行，存入rw buffer	如：set user 0 0 3
-		//	verb, item.Key, item.Flags, item.Expiration, len(item.Value), item.Time_start, item.Time_end)
+
 		_, err = fmt.Fprintf(rw, "%s %s %d %d %d\r\n", //用item的基本信息构建命令的第一行，存入rw buffer	如：set user 0 0 3
-			verb, item.Key, len(item.Value), item.Time_start, item.Time_end)
+			verb, item.Key, len(item.Value), item.Time_start, item.Time_end) // set key len st et	memcache的set格式暂时是这样，ts实际上应该输入值的长度
+		//_, err = fmt.Fprintf(rw, "%s %s %d %d %d\r\n",
+		//	verb, item.Key, item.Time_start, item.Time_end, item.NumOfTables)	//最终格式是这样的（大概），最后一个参数是结果中表的数量
 	}
 	if err != nil {
 		return err
@@ -730,7 +733,7 @@ func (c *Client) populateOne(rw *bufio.ReadWriter, verb string, item *Item) erro
 	if err := rw.Flush(); err != nil { //向Memcache写入前面组装的两行命令	如： set user 0 0 3\r\n	zyx\r\n		表示把key=user、value=zyx的item存入Memcache	如果成功，会返回 STORED
 		return err
 	}
-	line, err := rw.ReadSlice('\n') //读取命令的执行结果	如：STORED
+	line, err := rw.ReadSlice('\n') //读取命令在cache中的执行结果	如：STORED
 	if err != nil {
 		return err
 	}
