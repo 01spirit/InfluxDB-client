@@ -3491,6 +3491,104 @@ func TestResponse_ToByteArray(t *testing.T) {
 	}
 }
 
+func TestByteArrayToResponse(t *testing.T) {
+	c, err := NewHTTPClient(HTTPConfig{
+		Addr: "http://localhost:8086",
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	mc := memcache.New("localhost:11213")
+
+	tests := []struct {
+		name        string
+		queryString string
+		expected    string
+	}{
+		{
+			name:        "one table three columns",
+			queryString: "SELECT randtag,index FROM h2o_quality limit 5",
+			expected:    "",
+		},
+		{
+			name:        "one table four columns",
+			queryString: "SELECT randtag,index,location FROM h2o_quality limit 5",
+			expected:    "",
+		},
+		{ // Get() 的最大字节数限制 ?	和字节数无关，只能读取最多 64 条数据（怎么会和数据条数相关 ?）
+			name:        "one table two columns",
+			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek' AND  time >= '2019-08-18T00:00:00Z' limit 64",
+			expected:    "",
+		},
+		{
+			name:        "three tables two columns",
+			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag",
+			expected:    "",
+		},
+		//{	// length of key out of range(309 bytes) 不能超过250字节?
+		//	name:        "three tables four columns",
+		//	queryString: "SELECT index,location,randtag FROM h2o_quality WHERE location='coyote_creek' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag,location",
+		//	expected:    "",
+		//},
+		{
+			name:        "one table four columns",
+			queryString: "SELECT index,location,randtag FROM h2o_quality WHERE location='coyote_creek' AND randtag='2' AND index>50 AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag,location",
+			expected:    "",
+		},
+		{
+			name:        "two tables four columns",
+			queryString: "SELECT index,location,randtag FROM h2o_quality WHERE location='coyote_creek' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag,location",
+			expected:    "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			query := NewQuery(tt.queryString, MyDB, "ns")
+			resp, err := c.Query(query)
+			if err != nil {
+				t.Errorf(err.Error())
+			}
+
+			/* Set() 存入cache */
+			semanticSegment := SemanticSegment(tt.queryString, resp)
+			startTime, endTime := GetResponseTimeRange(resp)
+			respCacheByte := resp.ToByteArray(tt.queryString)
+			tableNumbers := int64(len(resp.Results[0].Series))
+			err = mc.Set(&memcache.Item{Key: semanticSegment, Value: respCacheByte, Time_start: startTime, Time_end: endTime, NumOfTables: tableNumbers})
+
+			if err != nil {
+				log.Fatalf("Set error: %v", err)
+			}
+			fmt.Println("Set successfully")
+
+			/* Get() 从cache取出 */
+			valueBytes, _, err := mc.Get(semanticSegment, startTime, endTime)
+			if err == memcache.ErrCacheMiss {
+				log.Printf("Key not found in cache")
+			} else if err != nil {
+				log.Fatalf("Error getting value: %v", err)
+			}
+			fmt.Println("Get successfully")
+
+			/* 字节数组转换为结果类型 */
+			respConverted := ByteArrayToResponse(valueBytes)
+			fmt.Println("Convert successfully")
+
+			if strings.Compare(resp.ToString(), respConverted.ToString()) != 0 {
+				t.Errorf("fail to convert:different response")
+			}
+			fmt.Println("Same before and after convert")
+
+			fmt.Println("resp:\n", resp.ToString())
+			fmt.Println("resp converted:\n", respConverted.ToString())
+			fmt.Println()
+			fmt.Println()
+		})
+	}
+
+}
+
 func TestBoolToByteArray(t *testing.T) {
 	bvs := []bool{true, false}
 	expected := [][]byte{{1}, {0}}
@@ -3764,7 +3862,35 @@ func TestTimeStringToInt64(t *testing.T) {
 	}
 }
 
-// done todo 设计新的 TestMerge ，多用几组不同条件的查询和不同时间范围（表的数量尽量不同，顺带测试表结构合并）
+func TestTimeInt64ToString(t *testing.T) {
+	timeIntegers := []int64{1566086400000000000, 946684800000000000, 9183110400000000000}
+	expected := []string{"2019-08-18T00:00:00Z", "2000-01-01T00:00:00Z", "2261-01-01T00:00:00Z"}
+	for i := range timeIntegers {
+		numberStr := TimeInt64ToString(timeIntegers[i])
+		if numberStr != expected[i] {
+			t.Errorf("time string:%s", numberStr)
+			t.Errorf("expected:%s", expected[i])
+		}
+	}
+}
+
+// done 根据查询时向 client.Query() 传入的时间的参数不同，会返回string和int64的不同类型的结果
+/*
+	暂时把cache传回的字节数组只处理成int64
+*/
+
+// todo Get()有长度限制，在哪里改
+/*
+	和字节数无关，只能读取最多 64 条数据（怎么会和数据条数相关 ?）
+*/
+
+// done cache 的所有操作的 key 都有长度限制
+/*
+	key 长度限制在 fc_memcache.c 中
+		#define MEMCACHE_MAX_KEY_LENGTH 250  --->  change to 450
+*/
+
+// done  设计新的 TestMerge ，多用几组不同条件的查询和不同时间范围（表的数量尽量不同，顺带测试表结构合并）
 /*
 	当前的测试用例时间范围太大，导致表的数量基本相同，需要缩小时间范围，增加不同结果中表数量的差距
 	对于时间精度和时间范围的测试，受当前数据集影响，基本只能使用 h 精度合并，即使选取的时间精度是 m ，查询到的数据也不能合并
@@ -3773,26 +3899,26 @@ func TestTimeStringToInt64(t *testing.T) {
 	对 Merge 相关的函数都重新进行了一次测试，结果符合预期，应该没问题
 */
 
-// done todo 检查和 Merge 相关的所有函数以及 Test 的边界条件（查询结果为空应该没问题， tag map 为空会怎样）
+// done  检查和 Merge 相关的所有函数以及 Test 的边界条件（查询结果为空应该没问题， tag map 为空会怎样）
 /*
 	查询结果为空会在对表排序的步骤直接跳过，并根据排好序的结果进行合并，空结果不会有影响
 	tag map 为空就是下面所说的，只有一张表，tag字符串为空，数据直接合并成一张新的表；数据没有按照时间重新排序（不需要）
 */
 
-// done todo 表合并之后数据是否需要再处理成按照时间顺序排列
+// done  表合并之后数据是否需要再处理成按照时间顺序排列
 /*
 	不同查询的时间范围没有重叠，一张表里的数据本身就是按照时间顺序排列的；
 	合并时两张表先按照起止时间排先后顺序，然后直接把后面的表的数据拼接到前面的表的数组上，这样就可以确保原本表内数据顺序不变，两张表的数据整体按照时间递增排列；
 	所以先排序再合并的两张表的数据本身时间顺序就是对的，不需要再处理
 */
 
-// done todo 确定在没使用 GROUP BY 时合并的过程、tag map的处理（好像没问题，但是为什么）
+// done  确定在没使用 GROUP BY 时合并的过程、tag map的处理（好像没问题，但是为什么）
 /*
 	此时结果中只有一个表，tag map为空，合并会直接把两个结果的数据拼接成一个表，分别是两张表的数据按照时间顺序排列
 	tag 字符串为空，存入数组时也是有长度的，不会出现数组越界，用空串进行比较等操作没有问题，会直接把唯一的表合并
 */
 
-// done todo Merge()传入不合适的时间精度时会报错，是什么引起的，怎么解决
+// done  Merge()传入不合适的时间精度时会报错，是什么引起的，怎么解决
 /*
 	时间精度不合适导致没能合并，此时结果中的表数量多于 expected 中的表数量，用tests的索引遍历输出expected的表时出现数组越界问题，不是函数本身的问题
 */

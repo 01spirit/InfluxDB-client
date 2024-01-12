@@ -1125,6 +1125,8 @@ func MergeResultTable(resp1, resp2 *Response) *Response {
 func GetResponseTimeRange(resp *Response) (int64, int64) {
 	var minStartTime int64
 	var maxEndTime int64
+	var ist int64
+	var iet int64
 
 	minStartTime = math.MaxInt64
 	maxEndTime = 0
@@ -1133,24 +1135,23 @@ func GetResponseTimeRange(resp *Response) (int64, int64) {
 		length := len(resp.Results[0].Series[s].Values)      //一个结果表中有多少条记录
 		start := resp.Results[0].Series[s].Values[0][0]      // 第一条记录的时间		第一个查询结果
 		end := resp.Results[0].Series[s].Values[length-1][0] // 最后一条记录的时间
-		st := start.(string)
-		et := end.(string)
 
-		/* 转换成 uint64 计算时间误差 */
-		//tsst, _ := time.Parse(time.RFC3339, st) //字符串转换成时间戳	转换的格式layout必须是这个时间，不能改
-		//tset, _ := time.Parse(time.RFC3339, et)
-		//uist := tsst.UnixNano() //时间戳转换成 int64 , 纳秒精度
-		//uiet := tset.UnixNano()
-
-		uist := TimeStringToInt64(st)
-		uiet := TimeStringToInt64(et)
+		if st, ok := start.(string); ok {
+			et := end.(string)
+			ist = TimeStringToInt64(st)
+			iet = TimeStringToInt64(et)
+		} else if st, ok := start.(json.Number); ok {
+			et := end.(json.Number)
+			ist, _ = st.Int64()
+			iet, _ = et.Int64()
+		}
 
 		/* 更新起止时间范围 	两个时间可能不在一个表中 ? */
-		if minStartTime > uist {
-			minStartTime = uist
+		if minStartTime > ist {
+			minStartTime = ist
 		}
-		if maxEndTime < uiet {
-			maxEndTime = uiet
+		if maxEndTime < iet {
+			maxEndTime = iet
 		}
 	}
 
@@ -1720,36 +1721,44 @@ func (resp *Response) ToByteArray(queryString string) []byte {
 
 // todo : byte array (and semantic segment?) to Response struct
 func ByteArrayToResponse(byteArray []byte) *Response {
-	valuess := make([][][]interface{}, 0) // 存放不同表的所有 values
+
+	/* 没有数据 */
+	if len(byteArray) == 0 {
+		return nil
+	}
+
+	valuess := make([][][]interface{}, 0) // 存放不同表(Series)的所有 values
 	values := make([][]interface{}, 0)    // 存放一张表的 values
 	value := make([]interface{}, 0)       // 存放 values 里的一行数据
 
-	semanticSegments := make([]string, 0)
-	seriesLength := make([]int64, 0)
+	semanticSegments := make([]string, 0) // 存放所有表各自的SCHEMA
+	seriesLength := make([]int64, 0)      // 每张表的数据的总字节数
 
-	var curSeg string // 当前表的语义段
-	var curLen int64  // 当前表的总字节数
-	index := 0
-	length := len(byteArray)
+	var curSeg string        // 当前表的语义段
+	var curLen int64         // 当前表的数据的总字节数
+	index := 0               // byteArray 数组的索引，指示当前要转换的字节的位置
+	length := len(byteArray) // Get()获取的总字节数
+
+	/* 转换 */
 	for index < length {
 		/* 结束转换 */
 		if index == length-2 { // 索引指向数组的最后两字节
-			if byteArray[index] == 13 && byteArray[index+1] == 10 { // "\r\n"，表示Get()返回的字节数组的末尾，结束转换		Get()除了返回查询数据之外，还会在数据末尾添加 "\r\n",如果读到这个组合，说明到达数组末尾
+			if byteArray[index] == 13 && byteArray[index+1] == 10 { // "\r\n"，表示Get()返回的字节数组的末尾，结束转换		Get()除了返回查询数据之外，还会在数据末尾添加一个 "\r\n",如果读到这个组合，说明到达数组末尾
 				break
 			} else {
 				log.Fatal(errors.New("expect CRLF in the end of []byte"))
 			}
 		}
 
-		/* SCHEMA行 格式如下 */
+		/* SCHEMA行 格式如下 	SSM:包含每张表单独的tags	len:一张表的数据的总字节数 */
 		//  {SSM}#{SF}#{SP}#{ST}#{SG} len\r\n
 		if byteArray[index] == 123 { // '{' ASCII码	表示语义段的开始位置
 			ssStartIdx := index
 			for byteArray[index] != 32 { // ' '空格，表示语义段的结束位置的后一位
 				index++
 			}
-			ssEndIdx := index // 此时索引指向 len 前面的 空格
-			curSeg = string(byteArray[ssStartIdx:ssEndIdx])
+			ssEndIdx := index                               // 此时索引指向 len 前面的 空格
+			curSeg = string(byteArray[ssStartIdx:ssEndIdx]) // 读取所有表示语义段的字节，直接转换为字符串
 			semanticSegments = append(semanticSegments, curSeg)
 
 			index++              // 空格后面的8字节是表示一张表中数据总字节数的int64
@@ -1757,7 +1766,7 @@ func ByteArrayToResponse(byteArray []byte) *Response {
 			index += 8
 			lenEndIdx := index // 索引指向 len 后面一位的回车符 '\r' ，再后面一位是 '\n'
 			tmpBytes := byteArray[lenStartIdx:lenEndIdx]
-			serLen, err := ByteArrayToInt64(tmpBytes)
+			serLen, err := ByteArrayToInt64(tmpBytes) // 读取 len ，转换为int64
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -1767,17 +1776,20 @@ func ByteArrayToResponse(byteArray []byte) *Response {
 			index += 2 // 索引指向换行符之后的第一个字节，开始读具体数据
 		}
 
-		/* 从 curSeg 取出数据类型的字符串sf,用 DataTypeFromSF()获取数据类型数组 */
+		/* 从 curSeg 取出包含每列的数据类型的字符串sf,获取数据类型数组 */
+		// 所有数据和数据类型都存放在数组中，位置是对应的
 		messages := strings.Split(curSeg, "#")
 		sf := messages[1][1 : len(messages[1])-1] // 去掉大括号，包含列名和数据类型的字符串
 		datatypes := DataTypeArrayFromSF(sf)      // 每列的数据类型
 
-		/* 读具体数据，根据 curSeg 中取出的的数据类型 */
+		/* 根据数据类型转换每行数据*/
 		bytesPerLine := BytesPerLine(datatypes) // 每行字节数
 		lines := int(curLen) / bytesPerLine     // 数据行数
-		for len(values) < lines {
-			for _, d := range datatypes {
-				switch d {
+		values = nil
+		for len(values) < lines { // 按行读取一张表中的所有数据
+			value = nil
+			for _, d := range datatypes { // 每次处理一行
+				switch d { // 根据每列的数据类型选择转换方法
 				case "bool":
 					bStartIdx := index
 					index += 2 //	索引指向下一个数据的第一个字节
@@ -1796,7 +1808,19 @@ func ByteArrayToResponse(byteArray []byte) *Response {
 					if err != nil {
 						log.Fatal(err)
 					}
-					value = append(value, tmp)
+					//if i == 0 { // 第一列是时间戳，存入Response时需要从int64转换成字符串
+					//	ts := TimeInt64ToString(tmp)
+					//	value = append(value, ts)
+					//} else {
+					//	str := strconv.FormatInt(tmp, 10)
+					//	jNumber := json.Number(str) // int64 转换成 json.Number 类型	;Response中的数字类型只有json.Number	int64和float64都要转换成json.Number
+					//	value = append(value, jNumber)
+					//}
+
+					// 根据查询时设置的参数不同，时间戳可能是字符串或int64，这里暂时当作int64处理
+					str := strconv.FormatInt(tmp, 10)
+					jNumber := json.Number(str) // int64 转换成 json.Number 类型	;Response中的数字类型只有json.Number	int64和float64都要转换成json.Number
+					value = append(value, jNumber)
 					break
 				case "float64":
 					fStartIdx := index
@@ -1806,11 +1830,13 @@ func ByteArrayToResponse(byteArray []byte) *Response {
 					if err != nil {
 						log.Fatal(err)
 					}
-					value = append(value, tmp)
+					str := strconv.FormatFloat(tmp, 'g', -1, 64)
+					jNumber := json.Number(str) // 转换成json.Number
+					value = append(value, jNumber)
 					break
 				default: // string
 					sStartIdx := index
-					index += 25 // 索引指向下一个数据的第一个字节
+					index += STRINGBYTELENGTH // 索引指向下一个数据的第一个字节
 					sEndIdx := index
 					tmp := ByteArrayToString(byteArray[sStartIdx:sEndIdx])
 					value = append(value, tmp)
@@ -1818,56 +1844,56 @@ func ByteArrayToResponse(byteArray []byte) *Response {
 				}
 			}
 			values = append(values, value)
-			index += 2 // values之间有CRLF，跳过，处理下一行数据
+			index += 2 // 跳过每行数据之间的换行符CRLF，处理下一行数据
 		}
 		valuess = append(valuess, values)
 	}
-
-	// todo 时间戳类型转换
-	//for _, vv := range valuess {
-	//	for _, v := range vv {
-	//		//fmt.Println(v[0].(int64))
-	//		//v[0] = TimeInt64ToString(v[0].(int64))
-	//	}
-	//}
 
 	/* 用 semanticSegments数组 和 values数组 还原出表结构，构造成 Response 返回 */
 	modelsRows := make([]models.Row, 0)
 
 	// {SSM}#{SF}#{SP}#{ST}#{SG}
-	// 需要 SSM (name.tag=value) 中的 name 和 tag value
+	// 需要 SSM (name.tag=value) 中的 measurement name 和 tag value	可能是 empty_tag
 	// 需要 SF 中的列名（考虑 SG 中的聚合函数）
 	// values [][]interface{} 直接插入
 	for i, s := range semanticSegments {
 		messages := strings.Split(s, "#")
 		/* 处理 ssm */
-		ssm := messages[0][1 : len(messages[0])-1] // 去掉大括号
+		ssm := messages[0][2 : len(messages[0])-2] // 去掉SM两侧的 大括号和小括号
 		merged := strings.Split(ssm, ",")
-		nameIndex := strings.Index(merged[0], ".")
+		nameIndex := strings.Index(merged[0], ".") // 提取 measurement name
 		name := merged[0][:nameIndex]
 		tags := make(map[string]string)
-		for _, m := range merged {
+		for _, m := range merged { // 取出所有tag
 			tag := m[nameIndex+1 : len(m)]
-			eqIdx := strings.Index(tag, "=")
-			if eqIdx <= 0 {
+			eqIdx := strings.Index(tag, "=") // tag 和 value 由  "=" 连接
+			if eqIdx <= 0 {                  // 没有等号说明没有tag
 				break
 			}
-			key := tag[:eqIdx]
+			key := tag[:eqIdx] // Response 中的 tag 结构为 map[string]string
 			val := tag[eqIdx+1 : len(tag)]
-			tags[key] = val
+			tags[key] = val // 存入 tag map
 		}
 
-		/* 处理sf */
-		sf := messages[1][1 : len(messages[1])-1]
-		fields := strings.Split(sf, ",")
+		/* 处理sf 如果有聚合函数，列名要用函数名，否则用sf中的列名*/
 		columns := make([]string, 0)
-		for _, f := range fields {
-			idx := strings.Index(f, "[")
-			columnName := f[:idx]
-			columns = append(columns, columnName)
+		sf := messages[1][1 : len(messages[1])-1]
+		sg := messages[4][1 : len(messages[4])-1]
+		splitSg := strings.Split(sg, ",")
+		aggr := splitSg[0]                       // 聚合函数名，小写的
+		if strings.Compare(aggr, "empty") != 0 { // 聚合函数不为空，列名应该是聚合函数的名字
+			columns = append(columns, "time")
+			columns = append(columns, aggr)
+		} else { // 没有聚合函数，用正常的列名
+			fields := strings.Split(sf, ",") // time[int64],randtag[string]...
+			for _, f := range fields {
+				idx := strings.Index(f, "[") // "[" 前面的字符串是列名，后面的是数据类型
+				columnName := f[:idx]
+				columns = append(columns, columnName)
+			}
 		}
 
-		/* 构造一个 Series */
+		/* 根据一条语义段构造一个 Series */
 		seriesTmp := Series{
 			Name:    name,
 			Tags:    tags,
@@ -1928,14 +1954,30 @@ func InterfaceToByteArray(index int, datatype string, value interface{}) []byte 
 	case "int64":
 		if value != nil {
 			if index == 0 { // 第一列的时间戳
-				timestamp := value.(string)
-				tsi := TimeStringToInt64(timestamp)
-				iBytes, err := Int64ToByteArray(tsi)
-				if err != nil {
-					log.Fatal(fmt.Errorf(err.Error()))
+				if timestamp, ok := value.(string); ok {
+					tsi := TimeStringToInt64(timestamp)
+					iBytes, err := Int64ToByteArray(tsi)
+					if err != nil {
+						log.Fatal(fmt.Errorf(err.Error()))
+					} else {
+						result = append(result, iBytes...)
+					}
+				} else if timestamp, ok := value.(json.Number); ok {
+					jvi, err := timestamp.Int64()
+					if err != nil {
+						log.Fatal(fmt.Errorf(err.Error()))
+					} else {
+						iBytes, err := Int64ToByteArray(jvi)
+						if err != nil {
+							log.Fatal(fmt.Errorf(err.Error()))
+						} else {
+							result = append(result, iBytes...)
+						}
+					}
 				} else {
-					result = append(result, iBytes...)
+					log.Fatal("timestamp fail to convert to []byte")
 				}
+
 			} else { // 除第一列以外的所有列
 				jv, ok := value.(json.Number)
 				if !ok {
@@ -2016,7 +2058,7 @@ func BytesPerLine(datatypes []string) int {
 			bytesPerLine += 8
 			break
 		default:
-			bytesPerLine += 25
+			bytesPerLine += STRINGBYTELENGTH
 			break
 		}
 	}
@@ -2045,11 +2087,13 @@ func ByteArrayToBool(byteArray []byte) (bool, error) {
 	return b, nil
 }
 
+const STRINGBYTELENGTH = 25
+
 func StringToByteArray(str string) []byte {
-	byteArray := make([]byte, 0, 25)
+	byteArray := make([]byte, 0, STRINGBYTELENGTH)
 	byteStr := []byte(str)
-	if len(byteStr) > 25 {
-		return byteStr[:25]
+	if len(byteStr) > STRINGBYTELENGTH {
+		return byteStr[:STRINGBYTELENGTH]
 	}
 	byteArray = append(byteArray, byteStr...)
 	for i := 0; i < cap(byteArray)-len(byteStr); i++ {
@@ -2116,10 +2160,9 @@ func TimeStringToInt64(timestamp string) int64 {
 	return numberN
 }
 
-// todo int64 to string timestamp
 // 从字节数组转换回来的时间戳是 int64 ,Response 结构中存的是 string	time.RFC3339
 func TimeInt64ToString(number int64) string {
-	t := time.Unix(0, number)
+	t := time.Unix(0, number).UTC()
 	timestamp := t.Format(time.RFC3339)
 
 	return timestamp
@@ -2129,7 +2172,7 @@ func TimeInt64ToString(number int64) string {
 // lists:
 // done 1.把数据转为对应数量的byte
 // done 2.根据series确定SF的数据类型。
-// todo 3.把转化好的byte传入fatcache中再取出，转为result
+// done 3.把转化好的byte传入fatcache中再取出，转为result
 /*
 	1.数据类型有4种：string/int64/float64/bool
 		字节数：		25/8/8/1

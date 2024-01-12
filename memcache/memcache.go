@@ -191,9 +191,9 @@ type Item struct {
 	// required for a CompareAndSwap request to succeed.			它由get请求填充，然后CompareAndSwap请求需要相同的值才能成功。
 	CasID uint64
 
-	Time_start uint64
+	Time_start int64
 
-	Time_end uint64
+	Time_end int64
 
 	NumOfTables int64
 }
@@ -352,7 +352,7 @@ func (c *Client) FlushAll() error {
 
 // Get gets the item for the given key. ErrCacheMiss is returned for a
 // memcache cache miss. The key must be at most 250 bytes in length.
-func (c *Client) Get(key string, start_time uint64, end_time uint64) (itemValues []byte, item *Item, err error) {
+func (c *Client) Get(key string, start_time int64, end_time int64) (itemValues []byte, item *Item, err error) {
 	err = c.withKeyAddr(key, func(addr net.Addr) error {
 		return c.getFromAddr(addr, key, start_time, end_time, &itemValues, func(it *Item) { item = it })
 	})
@@ -408,7 +408,7 @@ VALUE user 0 3 101
 zyx
 END
 */
-func (c *Client) getFromAddr(addr net.Addr, key string, start_time uint64, end_time uint64, itemValues *[]byte, cb func(*Item)) error {
+func (c *Client) getFromAddr(addr net.Addr, key string, start_time int64, end_time int64, itemValues *[]byte, cb func(*Item)) error {
 	return c.withAddrRw(addr, func(rw *bufio.ReadWriter) error {
 		/*if _, err := fmt.Fprintf(rw, "get %s t %d %d\r\n", strings.Join(keys, " "), start_time, end_time); err != nil { //使用 gets 查询，除了获取key的flag及value以外，额外多获取一个cas unique id的值
 			return err
@@ -504,7 +504,7 @@ func (c *Client) touchFromAddr(addr net.Addr, keys []string, expiration int32) e
 // cache misses. Each key must be at most 250 bytes in length.
 // If no error is returned, the returned map will also be non-nil.
 // GetMulti 从多个服务器上获取多个键对应的值，并将结果存储在一个 map 中返回	Get从单个服务器获取
-func (c *Client) GetMulti(keys []string, start_time uint64, end_time uint64) (map[string]*Item, error) {
+func (c *Client) GetMulti(keys []string, start_time int64, end_time int64) (map[string]*Item, error) {
 	var lk sync.Mutex
 	m := make(map[string]*Item)
 	addItemToMap := func(it *Item) {

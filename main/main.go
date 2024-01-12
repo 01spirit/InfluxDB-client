@@ -6,7 +6,6 @@ import (
 	"github.com/InfluxDB-client/memcache"
 	"github.com/InfluxDB-client/v2"
 	"log"
-	"time"
 )
 
 const (
@@ -42,6 +41,19 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	lstr := "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)(h2o_quality.location=coyote_creek,h2o_quality.randtag=3)(h2o_quality.location=santa_monica,h2o_quality.randtag=2)(h2o_quality.location=santa_monica,h2o_quality.randtag=3)}#{time[int64],index[int64]}#{(randtag!='1'[string])(index>=50[int64])}#{1566086400000000000,1566261000000000000}#{max,12m}"
+	fmt.Println(len(lstr))
+
+	//tmp := float64(123.1234567890987654321)
+	//s := strconv.FormatFloat(tmp, 'g', -1, 64)
+	//jNumber := json.Number(s)
+	//fmt.Println(jNumber)
+
+	//tmp := int64(123)
+	//s := strconv.FormatInt(tmp, 10)
+	//jNumber := json.Number(s)
+	//fmt.Println(jNumber)
 
 	//ii := json.Number("123")
 	//ff := json.Number("123.456")
@@ -214,10 +226,8 @@ func main() {
 
 	//fmt.Println(time.Hour.Nanoseconds())
 
-	fmt.Println(byte(' ') == 32)
-
 	queryMemcache := "SELECT randtag,index FROM h2o_quality limit 5"
-	qm := client.NewQuery(queryMemcache, MyDB, "")
+	qm := client.NewQuery(queryMemcache, MyDB, "ns")
 	respCache, _ := c.Query(qm)
 
 	semanticSegment := client.SemanticSegment(queryMemcache, respCache)
@@ -232,10 +242,6 @@ func main() {
 
 	//err = mc.Set(&memcache.Item{Key: "mykey", Value: []byte(str), Time_start: 134123, Time_end: 53421432123})
 	err = mc.Set(&memcache.Item{Key: semanticSegment, Value: respCacheByte, Time_start: 134123, Time_end: 53421432123, NumOfTables: 1})
-
-	inter := respCache.Results[0].Series[0].Values[0][0].(string)
-	ts, _ := time.Parse(time.RFC3339, inter)
-	fmt.Println(uint64(ts.UnixNano()))
 
 	if err != nil {
 		log.Fatalf("Error setting value: %v", err)
@@ -258,8 +264,18 @@ func main() {
 	fmt.Printf("\nequal:%v\n", bytes.Equal(respCacheByte, itemValues[:len(itemValues)-2]))
 
 	respConverted := client.ByteArrayToResponse(itemValues)
-	fmt.Println("convert byte array to response:")
-	fmt.Println(respConverted.ToByteArray(queryMemcache))
+	respConvertedStr := respConverted.ToString()
+	respConvertedByteArray := respConverted.ToByteArray(queryMemcache)
+
+	fmt.Println("\nconvert byte array to response string:")
+	fmt.Println(respConvertedStr)
+	fmt.Println("\nconvert byte array to response byte array:")
+	fmt.Println(respConvertedByteArray)
+	compare := bytes.Equal(respCacheByte, respConvertedByteArray)
+	fmt.Println("\ncompare byte array before and after convert:", compare)
+	fmt.Println("\nrespCache:\t", *respCache)
+	fmt.Println("\nrespConverted:\t", *respConverted)
+	fmt.Println("\ncompare:\t", respCache.ToString() == respConverted.ToString())
 
 	fmt.Println()
 
