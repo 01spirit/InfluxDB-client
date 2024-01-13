@@ -1163,18 +1163,14 @@ SemanticSegment 根据查询语句和数据库返回数据组成字段，用作�
 */
 func SemanticSegment(queryString string, response *Response) string {
 	SM := GetSM(response)
-	SPST := GetSPST(queryString)
+	//SPST := GetSPST(queryString)
+	SP := GetSP(queryString)
 	Interval := GetInterval(queryString)
 	SF, Aggr := GetSFSGWithDataType(queryString, response)
 
 	var result string
-	result = fmt.Sprintf("%s#{%s}#%s#{%s,%s}", SM, SF, SPST, Aggr, Interval)
-
-	//var resultArr []string
-	//for i := range SM {
-	//	str := fmt.Sprintf("{%s}#{%s}#%s#{%s,%s}", SM[i], SF, SPST, Aggr, Interval)
-	//	resultArr = append(resultArr, str)
-	//}
+	//result = fmt.Sprintf("%s#{%s}#%s#{%s,%s}", SM, SF, SPST, Aggr, Interval)
+	result = fmt.Sprintf("%s#{%s}#%s#{%s,%s}", SM, SF, SP, Aggr, Interval)
 
 	return result
 }
@@ -1182,12 +1178,14 @@ func SemanticSegment(queryString string, response *Response) string {
 func SeperateSemanticSegment(queryString string, response *Response) []string {
 	SepSM := GetSeperateSM(response)
 	SF, SG := GetSFSGWithDataType(queryString, response)
-	SPST := GetSPST(queryString)
+	//SPST := GetSPST(queryString)
+	SP := GetSP(queryString)
 	Interval := GetInterval(queryString)
 
 	var resultArr []string
 	for i := range SepSM {
-		str := fmt.Sprintf("%s#{%s}#%s#{%s,%s}", SepSM[i], SF, SPST, SG, Interval)
+		//str := fmt.Sprintf("%s#{%s}#%s#{%s,%s}", SepSM[i], SF, SPST, SG, Interval)
+		str := fmt.Sprintf("%s#{%s}#%s#{%s,%s}", SepSM[i], SF, SP, SG, Interval)
 		resultArr = append(resultArr, str)
 	}
 
@@ -1484,6 +1482,40 @@ func GetSFSG(query string) (string, string) {
 	}
 
 	return flds, aggr
+}
+
+/* 只获取谓词，不要时间范围 */
+func GetSP(query string) string {
+	//regStr := `(?i).+WHERE(.+)GROUP BY.`
+	regStr := `(?i).+WHERE(.+)`
+	conditionExpr := regexp.MustCompile(regStr)
+	if ok, _ := regexp.MatchString(regStr, query); !ok {
+		return "{empty}"
+	}
+	condExprMatch := conditionExpr.FindStringSubmatch(query) // 获取 WHERE 后面的所有表达式，包括谓词和时间范围
+	parseExpr := condExprMatch[1]
+
+	now := time.Now()
+	valuer := influxql.NowValuer{Now: now}
+	expr, _ := influxql.ParseExpr(parseExpr)
+	cond, _, _ := influxql.ConditionExpr(expr, &valuer) //提取出谓词
+
+	var result string
+	if cond == nil { //没有谓词
+		result += fmt.Sprintf("{empty}")
+	} else { //从语法树中找出由AND或OR连接的所有独立的谓词表达式
+		var conds []string
+		binaryExpr := cond.(*influxql.BinaryExpr)
+		var datatype []string
+		predicates, datatypes := PreOrderTraverseBinaryExpr(binaryExpr, &conds, &datatype)
+		result += "{"
+		for i, p := range *predicates {
+			result += fmt.Sprintf("(%s[%s])", p, (*datatypes)[i])
+		}
+		result += "}"
+	}
+
+	return result
 }
 
 /*
@@ -1878,7 +1910,7 @@ func ByteArrayToResponse(byteArray []byte) *Response {
 		/* 处理sf 如果有聚合函数，列名要用函数名，否则用sf中的列名*/
 		columns := make([]string, 0)
 		sf := messages[1][1 : len(messages[1])-1]
-		sg := messages[4][1 : len(messages[4])-1]
+		sg := messages[3][1 : len(messages[3])-1]
 		splitSg := strings.Split(sg, ",")
 		aggr := splitSg[0]                       // 聚合函数名，小写的
 		if strings.Compare(aggr, "empty") != 0 { // 聚合函数不为空，列名应该是聚合函数的名字
@@ -2170,6 +2202,11 @@ func TimeInt64ToString(number int64) string {
 
 // todo :
 // lists:
+
+// todo : 修改 semantic segment ,去掉所有的时间范围 ST	，修改测试代码中所有包含时间范围的部分
+// todo : 找到Get()方法的限制和什么因素有关，为什么会是读取64条数据，数据之间即使去掉换行符也不能读取更多，
+// todo : key 的长度限制暂时设置为 450
+
 // done 1.把数据转为对应数量的byte
 // done 2.根据series确定SF的数据类型。
 // done 3.把转化好的byte传入fatcache中再取出，转为result

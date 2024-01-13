@@ -1447,6 +1447,120 @@ func TestPreOrderTraverseBinaryExpr(t *testing.T) {
 	}
 }
 
+func TestGetSP(t *testing.T) {
+	tests := []struct {
+		name        string
+		queryString string
+		expected    string
+	}{
+		{
+			name:        "without WHERE clause",
+			queryString: "SELECT index FROM h2o_quality",
+			expected:    "{empty}",
+		},
+		{
+			name:        "only one predicate without time range",
+			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek'",
+			expected:    "{(location='coyote_creek'[string])}",
+		},
+		{
+			name:        "only time range(GE,LE)",
+			queryString: "SELECT index FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z'",
+			expected:    "{empty}",
+		},
+		{
+			name:        "only time range(EQ)",
+			queryString: "SELECT index FROM h2o_quality WHERE time = '2019-08-18T00:00:00Z'",
+			expected:    "{empty}",
+		},
+		//{		// now()是当前时间，能正常用
+		//	name:        "only time range(NOW)",
+		//	queryString: "SELECT index FROM h2o_quality WHERE time <= now()",
+		//	expected:    "{empty}",
+		//},
+		{
+			name:        "only time range(GT,LT)",
+			queryString: "SELECT index FROM h2o_quality WHERE time > '2019-08-18T00:00:00Z' AND time < '2019-08-18T00:30:00Z'",
+			expected:    "{empty}",
+		},
+		{
+			name:        "only half time range(GE)",
+			queryString: "SELECT index FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z'",
+			expected:    "{empty}",
+		},
+		{
+			name:        "only half time range(LT)",
+			queryString: "SELECT index FROM h2o_quality WHERE time < '2019-08-18T00:30:00Z'",
+			expected:    "{empty}",
+		},
+		{
+			name:        "only half time range with arithmetic",
+			queryString: "SELECT index FROM h2o_quality WHERE time <= '2019-08-18T00:30:00Z' - 10m",
+			expected:    "{empty}",
+		},
+		{
+			name:        "only one predicate with half time range(GE)",
+			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek' AND  time >= '2019-08-18T00:00:00Z'",
+			expected:    "{(location='coyote_creek'[string])}",
+		},
+		{
+			name:        "only one predicate with half time range(LE)",
+			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek' AND time <= '2019-08-18T00:30:00Z'",
+			expected:    "{(location='coyote_creek'[string])}",
+		},
+		{
+			name:        "one condition and time range without GROUP BY",
+			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek' AND  time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z'",
+			expected:    "{(location='coyote_creek'[string])}",
+		},
+		{
+			name:        "one condition and time range with GROUP BY",
+			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek' AND  time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY location",
+			expected:    "{(location='coyote_creek'[string])}",
+		},
+		{
+			name:        "one condition with GROUP BY",
+			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek' GROUP BY location",
+			expected:    "{(location='coyote_creek'[string])}",
+		},
+		{
+			name:        "only half time range(LT) with GROUP BY",
+			queryString: "SELECT index FROM h2o_quality WHERE time <= '2015-08-18T00:42:00Z' GROUP BY location",
+			expected:    "{empty}",
+		},
+		{
+			name:        "two conditions and time range with GROUP BY",
+			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek' AND randtag='2' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY location",
+			expected:    "{(location='coyote_creek'[string])(randtag='2'[string])}",
+		},
+		{
+			name:        "three conditions and time range with GROUP BY",
+			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek' AND randtag='2' AND index>=50 AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY location",
+			expected:    "{(location='coyote_creek'[string])(randtag='2'[string])(index>=50[int64])}",
+		},
+		{
+			name:        "three conditions(OR)",
+			queryString: "SELECT water_level FROM h2o_feet WHERE location <> 'santa_monica' AND (water_level < -0.59 OR water_level > 9.95)",
+			expected:    "{(location!='santa_monica'[string])(water_level<-0.590[float64])(water_level>9.950[float64])}",
+		},
+		{
+			name:        "three conditions(OR) and time range",
+			queryString: "SELECT water_level FROM h2o_feet WHERE location <> 'santa_monica' AND (water_level < -0.59 OR water_level > 9.95) AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY location",
+			expected:    "{(location!='santa_monica'[string])(water_level<-0.590[float64])(water_level>9.950[float64])}",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			SP := GetSP(tt.queryString)
+			if !reflect.DeepEqual(SP, tt.expected) {
+				t.Errorf("SP:\t%s\nexpected:\t%s", SP, tt.expected)
+			}
+		})
+	}
+
+}
+
 func TestGetSPST(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -1570,77 +1684,77 @@ func TestSemanticSegment(t *testing.T) {
 		{
 			name:        "without WHERE",
 			queryString: "SELECT index FROM h2o_quality",
-			expected:    "{(h2o_quality.empty_tag)}#{time[int64],index[int64]}#{empty}#{empty,empty}#{empty,empty}",
+			expected:    "{(h2o_quality.empty_tag)}#{time[int64],index[int64]}#{empty}#{empty,empty}",
 		},
 		{
 			name:        "SF SP",
 			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek'",
-			expected:    "{(h2o_quality.empty_tag)}#{time[int64],index[int64]}#{(location='coyote_creek'[string])}#{empty,empty}#{empty,empty}",
+			expected:    "{(h2o_quality.empty_tag)}#{time[int64],index[int64]}#{(location='coyote_creek'[string])}#{empty,empty}",
 		},
 		{
 			name:        "SF ST",
 			queryString: "SELECT index FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z'",
-			expected:    "{(h2o_quality.empty_tag)}#{time[int64],index[int64]}#{empty}#{1566086400000000000,1566088200000000000}#{empty,empty}",
+			expected:    "{(h2o_quality.empty_tag)}#{time[int64],index[int64]}#{empty}#{empty,empty}",
 		},
 		{
 			name:        "SF and half ST",
 			queryString: "SELECT index FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z'",
-			expected:    "{(h2o_quality.empty_tag)}#{time[int64],index[int64]}#{empty}#{1566086400000000000,empty}#{empty,empty}",
+			expected:    "{(h2o_quality.empty_tag)}#{time[int64],index[int64]}#{empty}#{empty,empty}",
 		},
 		{
 			name:        "SF SP and half ST",
 			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek' AND  time >= '2019-08-18T00:00:00Z'",
-			expected:    "{(h2o_quality.empty_tag)}#{time[int64],index[int64]}#{(location='coyote_creek'[string])}#{1566086400000000000,empty}#{empty,empty}",
+			expected:    "{(h2o_quality.empty_tag)}#{time[int64],index[int64]}#{(location='coyote_creek'[string])}#{empty,empty}",
 		},
 		{
 			name:        "SF SP ST",
 			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z'",
-			expected:    "{(h2o_quality.empty_tag)}#{time[int64],index[int64]}#{(location='coyote_creek'[string])}#{1566086400000000000,1566088200000000000}#{empty,empty}",
+			expected:    "{(h2o_quality.empty_tag)}#{time[int64],index[int64]}#{(location='coyote_creek'[string])}#{empty,empty}",
 		},
 		{
 			name:        "SM SF SP ST",
 			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag",
-			expected:    "{(h2o_quality.randtag=1)(h2o_quality.randtag=2)(h2o_quality.randtag=3)}#{time[int64],index[int64]}#{(location='coyote_creek'[string])}#{1566086400000000000,1566088200000000000}#{empty,empty}",
+			expected:    "{(h2o_quality.randtag=1)(h2o_quality.randtag=2)(h2o_quality.randtag=3)}#{time[int64],index[int64]}#{(location='coyote_creek'[string])}#{empty,empty}",
 		},
 		{
 			name:        "SM SF SP ST SG",
 			queryString: "SELECT MAX(water_level) FROM h2o_feet WHERE location='coyote_creek' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY location,time(12m)",
-			expected:    "{(h2o_feet.location=coyote_creek)}#{time[int64],water_level[float64]}#{(location='coyote_creek'[string])}#{1566086400000000000,1566088200000000000}#{max,12m}",
+			expected:    "{(h2o_feet.location=coyote_creek)}#{time[int64],water_level[float64]}#{(location='coyote_creek'[string])}#{max,12m}",
 		},
 		{
 			name:        "three fields without aggr",
 			queryString: "SELECT index,location,randtag FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z'",
-			expected:    "{(h2o_quality.empty_tag)}#{time[int64],index[int64],location[string],randtag[string]}#{empty}#{1566086400000000000,1566088200000000000}#{empty,empty}",
+			expected:    "{(h2o_quality.empty_tag)}#{time[int64],index[int64],location[string],randtag[string]}#{empty}#{empty,empty}",
 		},
 		{
 			name:        "SM three fields without aggr",
 			queryString: "SELECT index,location,randtag FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag",
-			expected:    "{(h2o_quality.randtag=1)(h2o_quality.randtag=2)(h2o_quality.randtag=3)}#{time[int64],index[int64],location[string],randtag[string]}#{empty}#{1566086400000000000,1566088200000000000}#{empty,empty}",
+			expected:    "{(h2o_quality.randtag=1)(h2o_quality.randtag=2)(h2o_quality.randtag=3)}#{time[int64],index[int64],location[string],randtag[string]}#{empty}#{empty,empty}",
 		},
 		{
 			name:        "SM SP three fields without aggr",
 			queryString: "SELECT index,location,randtag FROM h2o_quality WHERE location='coyote_creek' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag,location",
-			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=1)(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)(h2o_quality.location=coyote_creek,h2o_quality.randtag=3)}#{time[int64],index[int64],location[string],randtag[string]}#{(location='coyote_creek'[string])}#{1566086400000000000,1566088200000000000}#{empty,empty}",
+			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=1)(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)(h2o_quality.location=coyote_creek,h2o_quality.randtag=3)}#{time[int64],index[int64],location[string],randtag[string]}#{(location='coyote_creek'[string])}#{empty,empty}",
 		},
 		{
 			name:        "SM SP three fields three predicates",
 			queryString: "SELECT index,location,randtag FROM h2o_quality WHERE location='coyote_creek' AND randtag='2' AND index>50 AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag,location",
-			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)}#{time[int64],index[int64],location[string],randtag[string]}#{(location='coyote_creek'[string])(randtag='2'[string])(index>50[int64])}#{1566086400000000000,1566088200000000000}#{empty,empty}",
+			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)}#{time[int64],index[int64],location[string],randtag[string]}#{(location='coyote_creek'[string])(randtag='2'[string])(index>50[int64])}#{empty,empty}",
 		},
 		{
 			name:        "SP SG aggregation and three predicates",
 			queryString: "SELECT COUNT(index) FROM h2o_quality WHERE location='coyote_creek' AND randtag='2' AND index>50 AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag,location,time(10s)",
-			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)}#{time[int64],index[int64]}#{(location='coyote_creek'[string])(randtag='2'[string])(index>50[int64])}#{1566086400000000000,1566088200000000000}#{count,10s}",
+			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)}#{time[int64],index[int64]}#{(location='coyote_creek'[string])(randtag='2'[string])(index>50[int64])}#{count,10s}",
 		},
 		{
 			name:        "three predicates(OR)",
 			queryString: "SELECT water_level FROM h2o_feet WHERE location <> 'santa_monica' AND (water_level < -0.59 OR water_level > 9.95) AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-30T00:30:00Z' GROUP BY location",
-			expected:    "{(h2o_feet.location=coyote_creek)}#{time[int64],water_level[float64]}#{(location!='santa_monica'[string])(water_level<-0.590[float64])(water_level>9.950[float64])}#{1566086400000000000,1567125000000000000}#{empty,empty}",
+			expected:    "{(h2o_feet.location=coyote_creek)}#{time[int64],water_level[float64]}#{(location!='santa_monica'[string])(water_level<-0.590[float64])(water_level>9.950[float64])}#{empty,empty}",
 		},
 		{
 			name:        "time() and two tags",
 			queryString: "SELECT MAX(index) FROM h2o_quality WHERE randtag<>'1' AND index>=50 AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-20T00:30:00Z' GROUP BY location,time(12m),randtag",
-			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)(h2o_quality.location=coyote_creek,h2o_quality.randtag=3)(h2o_quality.location=santa_monica,h2o_quality.randtag=2)(h2o_quality.location=santa_monica,h2o_quality.randtag=3)}#{time[int64],index[int64]}#{(randtag!='1'[string])(index>=50[int64])}#{1566086400000000000,1566261000000000000}#{max,12m}",
+			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)(h2o_quality.location=coyote_creek,h2o_quality.randtag=3)(h2o_quality.location=santa_monica,h2o_quality.randtag=2)(h2o_quality.location=santa_monica,h2o_quality.randtag=3)}#{time[int64],index[int64]}#{(randtag!='1'[string])(index>=50[int64])}#{max,12m}",
 		},
 	}
 
@@ -1687,26 +1801,26 @@ func TestSeperateSemanticSegment(t *testing.T) {
 			name:        "empty tag",
 			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z'",
 			expected: []string{
-				"{(h2o_quality.empty_tag)}#{time[int64],index[int64]}#{(location='coyote_creek'[string])}#{1566086400000000000,1566088200000000000}#{empty,empty}",
+				"{(h2o_quality.empty_tag)}#{time[int64],index[int64]}#{(location='coyote_creek'[string])}#{empty,empty}",
 			},
 		},
 		{
 			name:        "four tables two tags",
 			queryString: "SELECT MAX(index) FROM h2o_quality WHERE randtag<>'1' AND index>=50 AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-20T00:30:00Z' GROUP BY location,time(12m),randtag",
 			expected: []string{
-				"{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)}#{time[int64],index[int64]}#{(randtag!='1'[string])(index>=50[int64])}#{1566086400000000000,1566261000000000000}#{max,12m}",
-				"{(h2o_quality.location=coyote_creek,h2o_quality.randtag=3)}#{time[int64],index[int64]}#{(randtag!='1'[string])(index>=50[int64])}#{1566086400000000000,1566261000000000000}#{max,12m}",
-				"{(h2o_quality.location=santa_monica,h2o_quality.randtag=2)}#{time[int64],index[int64]}#{(randtag!='1'[string])(index>=50[int64])}#{1566086400000000000,1566261000000000000}#{max,12m}",
-				"{(h2o_quality.location=santa_monica,h2o_quality.randtag=3)}#{time[int64],index[int64]}#{(randtag!='1'[string])(index>=50[int64])}#{1566086400000000000,1566261000000000000}#{max,12m}",
+				"{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)}#{time[int64],index[int64]}#{(randtag!='1'[string])(index>=50[int64])}#{max,12m}",
+				"{(h2o_quality.location=coyote_creek,h2o_quality.randtag=3)}#{time[int64],index[int64]}#{(randtag!='1'[string])(index>=50[int64])}#{max,12m}",
+				"{(h2o_quality.location=santa_monica,h2o_quality.randtag=2)}#{time[int64],index[int64]}#{(randtag!='1'[string])(index>=50[int64])}#{max,12m}",
+				"{(h2o_quality.location=santa_monica,h2o_quality.randtag=3)}#{time[int64],index[int64]}#{(randtag!='1'[string])(index>=50[int64])}#{max,12m}",
 			},
 		},
 		{
 			name:        "three table one tag",
 			queryString: "SELECT index,location,randtag FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag",
 			expected: []string{
-				"{(h2o_quality.randtag=1)}#{time[int64],index[int64],location[string],randtag[string]}#{empty}#{1566086400000000000,1566088200000000000}#{empty,empty}",
-				"{(h2o_quality.randtag=2)}#{time[int64],index[int64],location[string],randtag[string]}#{empty}#{1566086400000000000,1566088200000000000}#{empty,empty}",
-				"{(h2o_quality.randtag=3)}#{time[int64],index[int64],location[string],randtag[string]}#{empty}#{1566086400000000000,1566088200000000000}#{empty,empty}",
+				"{(h2o_quality.randtag=1)}#{time[int64],index[int64],location[string],randtag[string]}#{empty}#{empty,empty}",
+				"{(h2o_quality.randtag=2)}#{time[int64],index[int64],location[string],randtag[string]}#{empty}#{empty,empty}",
+				"{(h2o_quality.randtag=3)}#{time[int64],index[int64],location[string],randtag[string]}#{empty}#{empty,empty}",
 			},
 		},
 	}
