@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/InfluxDB-client/memcache"
 	"io"
 	"io/ioutil"
 	"log"
@@ -30,6 +31,17 @@ import (
 )
 
 type ContentEncoding string
+
+var c, err = NewHTTPClient(HTTPConfig{
+	Addr: "http://10.170.48.244:8086",
+	//Username: username,
+	//Password: password,
+})
+
+const STRINGBYTELENGTH = 25
+
+var TagKV = GetTagKV(c, MyDB)
+var Fields = GetFieldKeys(c, MyDB)
 
 const (
 	DefaultEncoding ContentEncoding = ""
@@ -778,6 +790,44 @@ func (r *ChunkedResponse) Close() error {
 	return r.duplex.Close()
 }
 
+const (
+	MyDB     = "NOAA_water_database"
+	username = "root"
+	password = "12345678"
+)
+
+func Set(queryString string, c Client, mc *memcache.Client) error {
+	query := NewQuery(queryString, MyDB, "ns")
+	resp, err := c.Query(query)
+	if err != nil {
+		return err
+	}
+
+	semanticSegment := SemanticSegment(queryString, resp)
+	startTime, endTime := GetResponseTimeRange(resp)
+	respCacheByte := resp.ToByteArray(queryString)
+	tableNumbers := int64(len(resp.Results[0].Series))
+
+	item := memcache.Item{
+		Key:         semanticSegment,
+		Value:       respCacheByte,
+		Flags:       0,
+		Expiration:  0,
+		CasID:       0,
+		Time_start:  startTime,
+		Time_end:    endTime,
+		NumOfTables: tableNumbers,
+	}
+
+	err = mc.Set(&item)
+
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 /*
 Merge
 Lists:
@@ -1158,13 +1208,122 @@ func GetResponseTimeRange(resp *Response) (int64, int64) {
 	return minStartTime, maxEndTime
 }
 
+// 获取一个数据库中所有表的field name，每张表存为一个map，其中的fields存为一个string数组
+func GetFieldKeys(c Client, database string) map[string][]string {
+	// 构建查询语句
+	//query := fmt.Sprintf("SHOW FIELD KEYS on %s from %s", database, measurement)
+	query := fmt.Sprintf("SHOW FIELD KEYS on %s", database)
+
+	// 执行查询
+	q := NewQuery(query, database, "")
+	resp, err := c.Query(q)
+	if err != nil {
+		fmt.Printf("Error: %s\n", err.Error())
+		return nil
+	}
+
+	// 处理查询结果
+	if resp.Error() != nil {
+		fmt.Printf("Error: %s\n", resp.Error().Error())
+		return nil
+	}
+
+	fieldMap := make(map[string][]string)
+	for _, series := range resp.Results[0].Series {
+		fieldNames := make([]string, 0)
+		measurementName := series.Name
+		for _, value := range series.Values {
+			fieldName, ok := value[0].(string)
+			if !ok {
+				log.Fatal("field name fail to convert to string")
+			}
+			fieldNames = append(fieldNames, fieldName)
+		}
+
+		fieldMap[measurementName] = fieldNames
+	}
+
+	return fieldMap
+}
+
+type TagValues struct {
+	Values []string
+}
+
+type TagKeyMap struct {
+	Tag map[string]TagValues
+}
+
+type MeasurementMap struct {
+	Measurement map[string][]TagKeyMap
+}
+
+// 获取所有表的tag的key和value
+func GetTagKV(c Client, database string) MeasurementMap {
+	// 构建查询语句
+	//query := fmt.Sprintf("SHOW FIELD KEYS on %s from %s", database, measurement)
+	queryK := fmt.Sprintf("SHOW tag KEYS on %s", database)
+
+	// 执行查询
+	q := NewQuery(queryK, database, "")
+	resp, err := c.Query(q)
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+
+	// 处理查询结果
+	if resp.Error() != nil {
+		log.Fatal(resp.Error().Error())
+	}
+
+	tagMap := make(map[string][]string)
+	//fmt.Println(resp)
+	for _, series := range resp.Results[0].Series {
+		measurementName := series.Name
+		for _, value := range series.Values {
+			tagKey, ok := value[0].(string)
+			if !ok {
+				log.Fatal("tag name fail to convert to string")
+			}
+			tagMap[measurementName] = append(tagMap[measurementName], tagKey)
+		}
+	}
+
+	var measurementTagMap MeasurementMap
+	measurementTagMap.Measurement = make(map[string][]TagKeyMap)
+	for k, v := range tagMap {
+		for _, tagKey := range v {
+			queryV := fmt.Sprintf("SHOW tag VALUES on %s from %s with key=\"%s\"", database, k, tagKey)
+			q := NewQuery(queryV, database, "")
+			resp, err := c.Query(q)
+			if err != nil {
+				log.Fatal(err.Error())
+			}
+			if resp.Error() != nil {
+				log.Fatal(resp.Error().Error())
+			}
+
+			var tagValues TagValues
+			for _, value := range resp.Results[0].Series[0].Values {
+				tagValues.Values = append(tagValues.Values, value[1].(string))
+			}
+			tmpKeyMap := make(map[string]TagValues, 0)
+			tmpKeyMap[tagKey] = tagValues
+			tagKeyMap := TagKeyMap{tmpKeyMap}
+			measurementTagMap.Measurement[k] = append(measurementTagMap.Measurement[k], tagKeyMap)
+		}
+	}
+
+	return measurementTagMap
+}
+
 /*
 SemanticSegment 根据查询语句和数据库返回数据组成字段，用作存入cache的key
 */
 func SemanticSegment(queryString string, response *Response) string {
 	SM := GetSM(response)
 	//SPST := GetSPST(queryString)
-	SP := GetSP(queryString)
+	SP := GetSP(queryString, response, TagKV)
 	Interval := GetInterval(queryString)
 	SF, Aggr := GetSFSGWithDataType(queryString, response)
 
@@ -1179,7 +1338,7 @@ func SeperateSemanticSegment(queryString string, response *Response) []string {
 	SepSM := GetSeperateSM(response)
 	SF, SG := GetSFSGWithDataType(queryString, response)
 	//SPST := GetSPST(queryString)
-	SP := GetSP(queryString)
+	SP := GetSP(queryString, response, TagKV)
 	Interval := GetInterval(queryString)
 
 	var resultArr []string
@@ -1192,7 +1351,7 @@ func SeperateSemanticSegment(queryString string, response *Response) []string {
 	return resultArr
 }
 
-// GetTagNameArr /* 判断结果是否为空，并提取出tags数组，用于规范tag map的输出顺序 */
+// GetTagNameArr /* 判断结果是否为空，并从结果中取出tags数组，用于规范tag map的输出顺序 */
 func GetTagNameArr(resp *Response) []string {
 	tagArr := make([]string, 0)
 	if resp == nil || len(resp.Results[0].Series) == 0 {
@@ -1393,7 +1552,7 @@ func DataTypeArrayFromResponse(resp *Response) []string {
 			}
 			if able {
 				for i, value := range v { // 根据具体数据推断该列的数据类型
-					if i == 0 {
+					if i == 0 { // 时间戳可能是string或int64，只使用int64
 						fields = append(fields, "int64")
 					} else if _, ok := value.(string); ok {
 						fields = append(fields, "string")
@@ -1485,7 +1644,7 @@ func GetSFSG(query string) (string, string) {
 }
 
 /* 只获取谓词，不要时间范围 */
-func GetSP(query string) string {
+func GetSP(query string, resp *Response, tagMap MeasurementMap) string {
 	//regStr := `(?i).+WHERE(.+)GROUP BY.`
 	regStr := `(?i).+WHERE(.+)`
 	conditionExpr := regexp.MustCompile(regStr)
@@ -1505,16 +1664,44 @@ func GetSP(query string) string {
 		result += fmt.Sprintf("{empty}")
 	} else { //从语法树中找出由AND或OR连接的所有独立的谓词表达式
 		var conds []string
+		var tag []string
 		binaryExpr := cond.(*influxql.BinaryExpr)
 		var datatype []string
-		predicates, datatypes := PreOrderTraverseBinaryExpr(binaryExpr, &conds, &datatype)
+		var measurement string
+		if !ResponseIsEmpty(resp) {
+			measurement = resp.Results[0].Series[0].Name
+		} else {
+			return "{empty}"
+		}
+
+		tags, predicates, datatypes := PreOrderTraverseBinaryExpr(binaryExpr, &tag, &conds, &datatype)
 		result += "{"
 		for i, p := range *predicates {
-			result += fmt.Sprintf("(%s[%s])", p, (*datatypes)[i])
+			isTag := false
+			found := false
+			for _, t := range tagMap.Measurement[measurement] {
+				for tagkey, _ := range t.Tag {
+					if (*tags)[i] == tagkey {
+						isTag = true
+						found = true
+						break
+					}
+				}
+				if found {
+					break
+				}
+			}
+
+			if !isTag {
+				result += fmt.Sprintf("(%s[%s])", p, (*datatypes)[i])
+			}
 		}
 		result += "}"
 	}
 
+	if len(result) == 2 {
+		result = "{empty}"
+	}
 	return result
 }
 
@@ -1556,9 +1743,10 @@ func GetSPST(query string) string {
 		result += fmt.Sprintf("{empty}#{%s,%s}", string_start_time, string_end_time)
 	} else { //从语法树中找出由AND或OR连接的所有独立的谓词表达式
 		var conds []string
+		var tag []string
 		binaryExpr := cond.(*influxql.BinaryExpr)
 		var datatype []string
-		predicates, datatypes := PreOrderTraverseBinaryExpr(binaryExpr, &conds, &datatype)
+		_, predicates, datatypes := PreOrderTraverseBinaryExpr(binaryExpr, &tag, &conds, &datatype)
 		result += "{"
 		for i, p := range *predicates {
 			result += fmt.Sprintf("(%s[%s])", p, (*datatypes)[i])
@@ -1573,10 +1761,10 @@ func GetSPST(query string) string {
 /*
 遍历语法树，找出所有谓词表达式，去掉多余的空格，存入字符串数组
 */
-func PreOrderTraverseBinaryExpr(node *influxql.BinaryExpr, predicates *[]string, datatypes *[]string) (*[]string, *[]string) {
+func PreOrderTraverseBinaryExpr(node *influxql.BinaryExpr, tags *[]string, predicates *[]string, datatypes *[]string) (*[]string, *[]string, *[]string) {
 	if node.Op != influxql.AND && node.Op != influxql.OR { // 不是由AND或OR连接的，说明表达式不可再分，存入结果数组
 		str := node.String()
-
+		//fmt.Println(node.LHS.String())
 		// 用字符串获取每个二元表达式的数据类型	可能有问题，具体看怎么用
 		if strings.Contains(str, "'") { // 有单引号的都是字符串
 			*datatypes = append(*datatypes, "string")
@@ -1588,26 +1776,27 @@ func PreOrderTraverseBinaryExpr(node *influxql.BinaryExpr, predicates *[]string,
 			*datatypes = append(*datatypes, "int64")
 		}
 
+		*tags = append(*tags, node.LHS.String())
 		str = strings.ReplaceAll(str, " ", "") //去掉空格
 		*predicates = append(*predicates, str)
-		return predicates, datatypes
+		return tags, predicates, datatypes
 	}
 
 	if node.LHS != nil { //遍历左子树
 		binaryExprL := GetBinaryExpr(node.LHS.String())
-		PreOrderTraverseBinaryExpr(binaryExprL, predicates, datatypes)
+		PreOrderTraverseBinaryExpr(binaryExprL, tags, predicates, datatypes)
 	} else {
-		return predicates, datatypes
+		return tags, predicates, datatypes
 	}
 
 	if node.RHS != nil { //遍历右子树
 		binaryExprR := GetBinaryExpr(node.RHS.String())
-		PreOrderTraverseBinaryExpr(binaryExprR, predicates, datatypes)
+		PreOrderTraverseBinaryExpr(binaryExprR, tags, predicates, datatypes)
 	} else {
-		return predicates, datatypes
+		return tags, predicates, datatypes
 	}
 
-	return predicates, datatypes
+	return tags, predicates, datatypes
 }
 
 /*
@@ -1728,13 +1917,15 @@ func (resp *Response) ToByteArray(queryString string) []byte {
 
 	for i, s := range resp.Results[0].Series {
 		numOfValues := len(s.Values)                                             // 表中数据行数
-		bytesPerSeries, _ := Int64ToByteArray(int64(bytesPerLine * numOfValues)) // 一张表的数据的总字节数
+		bytesPerSeries, _ := Int64ToByteArray(int64(bytesPerLine * numOfValues)) // 一张表的数据的总字节数：每行字节数 * 行数
 
 		/* 存入一张表的 semantic segment 和表内所有数据的总字节数 */
 		result = append(result, []byte(seprateSemanticSegment[i])...)
 		result = append(result, []byte(" ")...)
 		result = append(result, bytesPerSeries...)
-		result = append(result, []byte("\r\n")...)
+		result = append(result, []byte("\r\n")...) // 是否需要换行
+
+		//fmt.Printf("%s %d\r\n", seprateSemanticSegment[i], bytesPerSeries)
 
 		/* 数据转换成字节数组，存入 */
 		for _, v := range s.Values {
@@ -1742,16 +1933,22 @@ func (resp *Response) ToByteArray(queryString string) []byte {
 				datatype := datatypes[j]
 				tmpBytes := InterfaceToByteArray(j, datatype, vv)
 				result = append(result, tmpBytes...)
-			}
-			result = append(result, []byte("\r\n")...) // 每条数据之间之间换行
-		}
 
+			}
+			//fmt.Println(v)
+			//fmt.Print(v)
+
+			/* 如果传入cache的数据之间不需要换行，就把这一行注释掉 */
+			result = append(result, []byte("\r\n")...) // 每条数据之后换行
+		}
+		/* 如果表之间需要换行，在这里添加换行符，但是从字节数组转换成结果类型的部分也要修改 */
+		//result = append(result, []byte("\r\n")...) // 每条数据之后换行
 	}
 
 	return result
 }
 
-// todo : byte array (and semantic segment?) to Response struct
+// 字节数组转换成结果类型
 func ByteArrayToResponse(byteArray []byte) *Response {
 
 	/* 没有数据 */
@@ -1763,8 +1960,8 @@ func ByteArrayToResponse(byteArray []byte) *Response {
 	values := make([][]interface{}, 0)    // 存放一张表的 values
 	value := make([]interface{}, 0)       // 存放 values 里的一行数据
 
-	semanticSegments := make([]string, 0) // 存放所有表各自的SCHEMA
-	seriesLength := make([]int64, 0)      // 每张表的数据的总字节数
+	seprateSemanticSegments := make([]string, 0) // 存放所有表各自的SCHEMA
+	seriesLength := make([]int64, 0)             // 每张表的数据的总字节数
 
 	var curSeg string        // 当前表的语义段
 	var curLen int64         // 当前表的数据的总字节数
@@ -1783,15 +1980,15 @@ func ByteArrayToResponse(byteArray []byte) *Response {
 		}
 
 		/* SCHEMA行 格式如下 	SSM:包含每张表单独的tags	len:一张表的数据的总字节数 */
-		//  {SSM}#{SF}#{SP}#{ST}#{SG} len\r\n
-		if byteArray[index] == 123 { // '{' ASCII码	表示语义段的开始位置
+		//  {SSM}#{SF}#{SP}#{SG} len\r\n
+		if byteArray[index] == 123 && byteArray[index+1] == 40 { // "{(" ASCII码	表示语义段的开始位置
 			ssStartIdx := index
 			for byteArray[index] != 32 { // ' '空格，表示语义段的结束位置的后一位
 				index++
 			}
 			ssEndIdx := index                               // 此时索引指向 len 前面的 空格
 			curSeg = string(byteArray[ssStartIdx:ssEndIdx]) // 读取所有表示语义段的字节，直接转换为字符串
-			semanticSegments = append(semanticSegments, curSeg)
+			seprateSemanticSegments = append(seprateSemanticSegments, curSeg)
 
 			index++              // 空格后面的8字节是表示一张表中数据总字节数的int64
 			lenStartIdx := index // 索引指向 len 的第一个字节
@@ -1805,6 +2002,7 @@ func ByteArrayToResponse(byteArray []byte) *Response {
 			curLen = serLen
 			seriesLength = append(seriesLength, curLen)
 
+			/* 如果SCHEMA和数据之间不需要换行，把这一行注释掉 */
 			index += 2 // 索引指向换行符之后的第一个字节，开始读具体数据
 		}
 
@@ -1820,11 +2018,11 @@ func ByteArrayToResponse(byteArray []byte) *Response {
 		values = nil
 		for len(values) < lines { // 按行读取一张表中的所有数据
 			value = nil
-			for _, d := range datatypes { // 每次处理一行
+			for _, d := range datatypes { // 每次处理一行, 遍历一行中的所有列
 				switch d { // 根据每列的数据类型选择转换方法
 				case "bool":
 					bStartIdx := index
-					index += 2 //	索引指向下一个数据的第一个字节
+					index += 2 //	索引指向当前数据的后一个字节
 					bEndIdx := index
 					tmp, err := ByteArrayToBool(byteArray[bStartIdx:bEndIdx])
 					if err != nil {
@@ -1834,13 +2032,13 @@ func ByteArrayToResponse(byteArray []byte) *Response {
 					break
 				case "int64":
 					iStartIdx := index
-					index += 8 // 索引指向下一个数据的第一个字节
+					index += 8 // 索引指向当前数据的后一个字节
 					iEndIdx := index
 					tmp, err := ByteArrayToInt64(byteArray[iStartIdx:iEndIdx])
 					if err != nil {
 						log.Fatal(err)
 					}
-					//if i == 0 { // 第一列是时间戳，存入Response时需要从int64转换成字符串
+					//if i == 0 { // 第一列是时间戳，存入Response时从int64转换成字符串
 					//	ts := TimeInt64ToString(tmp)
 					//	value = append(value, ts)
 					//} else {
@@ -1856,7 +2054,7 @@ func ByteArrayToResponse(byteArray []byte) *Response {
 					break
 				case "float64":
 					fStartIdx := index
-					index += 8 // 索引指向下一个数据的第一个字节
+					index += 8 // 索引指向当前数据的后一个字节
 					fEndIdx := index
 					tmp, err := ByteArrayToFloat64(byteArray[fStartIdx:fEndIdx])
 					if err != nil {
@@ -1868,14 +2066,16 @@ func ByteArrayToResponse(byteArray []byte) *Response {
 					break
 				default: // string
 					sStartIdx := index
-					index += STRINGBYTELENGTH // 索引指向下一个数据的第一个字节
+					index += STRINGBYTELENGTH // 索引指向当前数据的后一个字节
 					sEndIdx := index
 					tmp := ByteArrayToString(byteArray[sStartIdx:sEndIdx])
-					value = append(value, tmp)
+					value = append(value, tmp) // 存放一行数据中的每一列
 					break
 				}
 			}
-			values = append(values, value)
+			values = append(values, value) // 存放一张表的每一行数据
+
+			/* 如果cache传回的数据之间不需要换行符，把这一行注释掉 */
 			index += 2 // 跳过每行数据之间的换行符CRLF，处理下一行数据
 		}
 		valuess = append(valuess, values)
@@ -1884,11 +2084,11 @@ func ByteArrayToResponse(byteArray []byte) *Response {
 	/* 用 semanticSegments数组 和 values数组 还原出表结构，构造成 Response 返回 */
 	modelsRows := make([]models.Row, 0)
 
-	// {SSM}#{SF}#{SP}#{ST}#{SG}
+	// {SSM}#{SF}#{SP}#{SG}
 	// 需要 SSM (name.tag=value) 中的 measurement name 和 tag value	可能是 empty_tag
 	// 需要 SF 中的列名（考虑 SG 中的聚合函数）
 	// values [][]interface{} 直接插入
-	for i, s := range semanticSegments {
+	for i, s := range seprateSemanticSegments {
 		messages := strings.Split(s, "#")
 		/* 处理 ssm */
 		ssm := messages[0][2 : len(messages[0])-2] // 去掉SM两侧的 大括号和小括号
@@ -1896,7 +2096,8 @@ func ByteArrayToResponse(byteArray []byte) *Response {
 		nameIndex := strings.Index(merged[0], ".") // 提取 measurement name
 		name := merged[0][:nameIndex]
 		tags := make(map[string]string)
-		for _, m := range merged { // 取出所有tag
+		/* 取出所有tag */
+		for _, m := range merged {
 			tag := m[nameIndex+1 : len(m)]
 			eqIdx := strings.Index(tag, "=") // tag 和 value 由  "=" 连接
 			if eqIdx <= 0 {                  // 没有等号说明没有tag
@@ -1956,7 +2157,7 @@ func ByteArrayToResponse(byteArray []byte) *Response {
 
 // InterfaceToByteArray 把查询结果的 interface{} 类型转换为 []byte
 /*
-	index: 数据所在列的序号，第一列的时间戳字符串要先转换成 int64
+	index: 数据所在列的序号，第一列的时间戳如果是字符串要先转换成 int64
 	datatype: 所在列的数据类型，决定转换的方法
 	value: 待转换的数据
 */
@@ -2028,7 +2229,7 @@ func InterfaceToByteArray(index int, datatype string, value interface{}) []byte 
 					}
 				}
 			}
-		} else {
+		} else { // 值为空时设置默认值
 			iBytes, _ := Int64ToByteArray(0)
 			result = append(result, iBytes...)
 		}
@@ -2119,8 +2320,6 @@ func ByteArrayToBool(byteArray []byte) (bool, error) {
 	return b, nil
 }
 
-const STRINGBYTELENGTH = 25
-
 func StringToByteArray(str string) []byte {
 	byteArray := make([]byte, 0, STRINGBYTELENGTH)
 	byteStr := []byte(str)
@@ -2203,9 +2402,14 @@ func TimeInt64ToString(number int64) string {
 // todo :
 // lists:
 
-// todo : 修改 semantic segment ,去掉所有的时间范围 ST	，修改测试代码中所有包含时间范围的部分
-// todo : 找到Get()方法的限制和什么因素有关，为什么会是读取64条数据，数据之间即使去掉换行符也不能读取更多，
-// todo : key 的长度限制暂时设置为 450
+// todo 整合Set()函数
+
+// todo 在工作站上安装InfluxDB1.8，下载样例数据库
+
+/* 详见 client_test.go 最后的说明 */
+// done : 修改 semantic segment ,去掉所有的时间范围 ST	，修改测试代码中所有包含时间范围的部分
+// done : 找到Get()方法的限制和什么因素有关，为什么会是读取64条数据，数据之间即使去掉换行符也不能读取更多，
+// done : key 的长度限制暂时设置为 450
 
 // done 1.把数据转为对应数量的byte
 // done 2.根据series确定SF的数据类型。

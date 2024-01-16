@@ -987,15 +987,107 @@ func TestClient_ReadStatementId(t *testing.T) {
 	}
 }
 
-const (
-	MyDB     = "NOAA_water_database"
-	username = "root"
-	password = "12345678"
-)
+func TestSet(t *testing.T) {
+	queryStrings := []string{
+		"SELECT randtag,index FROM h2o_quality limit 5",
+		"SELECT index,location FROM h2o_quality WHERE location='coyote_creek' AND  time >= '2019-08-18T00:00:00Z' limit 65",
+		"SELECT index,location FROM h2o_quality WHERE location='coyote_creek' AND  time >= '2019-08-18T00:00:00Z' limit 1000",
+		"SELECT index FROM h2o_quality WHERE location='coyote_creek' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag",
+		"SELECT index,location,randtag FROM h2o_quality WHERE location='coyote_creek' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag,location",
+	}
+
+	c, err := NewHTTPClient(HTTPConfig{
+		Addr: "http://10.170.48.244:8086",
+		//Username: username,
+		//Password: password,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	mc := memcache.New("localhost:11213")
+
+	for _, qs := range queryStrings {
+		err := Set(qs, c, mc)
+		if err != nil {
+			t.Errorf(err.Error())
+		}
+	}
+
+}
+
+func TestGetFieldKeys(t *testing.T) {
+	c, err := NewHTTPClient(HTTPConfig{
+		Addr: "http://10.170.48.244:8086",
+		//Username: username,
+		//Password: password,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	fieldKeys := GetFieldKeys(c, MyDB)
+
+	expected := make(map[string][]string)
+	expected["h2o_feet"] = []string{"level description", "water_level"}
+	expected["h2o_pH"] = []string{"pH"}
+	expected["h2o_quality"] = []string{"index"}
+	expected["h2o_temperature"] = []string{"degrees"}
+	expected["average_temperature"] = []string{"degrees"}
+
+	for k, v := range fieldKeys {
+		for i := range v {
+			if strings.Compare(v[i], expected[k][i]) != 0 {
+				t.Errorf("field:%s", v[i])
+				t.Errorf("expected:%s", expected[k][i])
+			}
+		}
+
+	}
+
+}
+
+func TestGetTagKV(t *testing.T) {
+	c, err := NewHTTPClient(HTTPConfig{
+		Addr: "http://10.170.48.244:8086",
+		//Username: username,
+		//Password: password,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	measurementTagMap := GetTagKV(c, MyDB)
+	expected := make(map[string][]string)
+	expected["h2o_feet"] = []string{"location"}
+	expected["h2o_pH"] = []string{"location"}
+	expected["h2o_quality"] = []string{"location", "randtag"}
+	expected["h2o_temperature"] = []string{"location"}
+	expected["average_temperature"] = []string{"location"}
+
+	fmt.Println(measurementTagMap.Measurement)
+	for name, tagmap := range measurementTagMap.Measurement {
+		fmt.Println(name) // 表名
+		for i := range tagmap {
+			for tagkey, tagvalue := range tagmap[i].Tag {
+				fmt.Println(tagkey, tagvalue.Values) // tag key value
+			}
+		}
+	}
+	//h2o_pH
+	//location [coyote_creek santa_monica]
+	//h2o_quality
+	//location [coyote_creek santa_monica]
+	//randtag [1 2 3]
+	//h2o_temperature
+	//location [coyote_creek santa_monica]
+	//average_temperature
+	//location [coyote_creek santa_monica]
+	//h2o_feet
+	//location [coyote_creek santa_monica]
+
+}
 
 func TestGetSM(t *testing.T) {
 	c, err := NewHTTPClient(HTTPConfig{
-		Addr: "http://localhost:8086",
+		Addr: "http://10.170.48.244:8086",
 		//Username: username,
 		//Password: password,
 	})
@@ -1072,7 +1164,7 @@ func TestGetSM(t *testing.T) {
 
 func TestGetSeperateSM(t *testing.T) {
 	c, err := NewHTTPClient(HTTPConfig{
-		Addr: "http://localhost:8086",
+		Addr: "http://10.170.48.244:8086",
 		//Username: username,
 		//Password: password,
 	})
@@ -1234,7 +1326,7 @@ func TestGetSFSG(t *testing.T) {
 
 func TestGetSFSGWithDataType(t *testing.T) {
 	c, err := NewHTTPClient(HTTPConfig{
-		Addr: "http://localhost:8086",
+		Addr: "http://10.170.48.244:8086",
 		//Username: username,
 		//Password: password,
 	})
@@ -1413,17 +1505,17 @@ func TestPreOrderTraverseBinaryExpr(t *testing.T) {
 		{
 			name:             "binary expr",
 			binaryExprString: "location='coyote_creek'",
-			expected:         [][]string{{"location='coyote_creek'", "string"}},
+			expected:         [][]string{{"location", "location='coyote_creek'", "string"}},
 		},
 		{
 			name:             "multiple binary expr",
 			binaryExprString: "location='coyote_creek' AND randtag='2' AND index>=50",
-			expected:         [][]string{{"location='coyote_creek'", "string"}, {"randtag='2'", "string"}, {"index>=50", "int"}},
+			expected:         [][]string{{"location", "location='coyote_creek'", "string"}, {"randtag", "randtag='2'", "string"}, {"index", "index>=50", "int64"}},
 		},
 		{
 			name:             "complex situation",
 			binaryExprString: "location <> 'santa_monica' AND (water_level < -0.59 OR water_level > 9.95)",
-			expected:         [][]string{{"location!='santa_monica'", "string"}, {"water_level<-0.590", "double"}, {"water_level>9.950", "double"}},
+			expected:         [][]string{{"location", "location!='santa_monica'", "string"}, {"water_level", "water_level<-0.590", "float64"}, {"water_level", "water_level>9.950", "float64"}},
 		},
 	}
 
@@ -1431,16 +1523,22 @@ func TestPreOrderTraverseBinaryExpr(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			conds := make([]string, 0)
 			datatype := make([]string, 0)
+			tag := make([]string, 0)
 			binaryExpr := GetBinaryExpr(tt.binaryExprString)
-			predicates, datatypes := PreOrderTraverseBinaryExpr(binaryExpr, &conds, &datatype)
+			tags, predicates, datatypes := PreOrderTraverseBinaryExpr(binaryExpr, &tag, &conds, &datatype)
+			for i, d := range *tags {
+				if d != tt.expected[i][0] {
+					t.Errorf("tag:\t%s\nexpected:\t%s", d, tt.expected[i][0])
+				}
+			}
 			for i, p := range *predicates {
-				if p != tt.expected[i][0] {
-					t.Errorf("predicate:\t%s\nexpected:\t%s", p, tt.expected[i][0])
+				if p != tt.expected[i][1] {
+					t.Errorf("predicate:\t%s\nexpected:\t%s", p, tt.expected[i][1])
 				}
 			}
 			for i, d := range *datatypes {
-				if d != tt.expected[i][1] {
-					t.Errorf("datatype:\t%s\nexpected:\t%s", d, tt.expected[i][1])
+				if d != tt.expected[i][2] {
+					t.Errorf("datatype:\t%s\nexpected:\t%s", d, tt.expected[i][2])
 				}
 			}
 		})
@@ -1461,7 +1559,7 @@ func TestGetSP(t *testing.T) {
 		{
 			name:        "only one predicate without time range",
 			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek'",
-			expected:    "{(location='coyote_creek'[string])}",
+			expected:    "{empty}",
 		},
 		{
 			name:        "only time range(GE,LE)",
@@ -1501,27 +1599,27 @@ func TestGetSP(t *testing.T) {
 		{
 			name:        "only one predicate with half time range(GE)",
 			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek' AND  time >= '2019-08-18T00:00:00Z'",
-			expected:    "{(location='coyote_creek'[string])}",
+			expected:    "{empty}",
 		},
 		{
 			name:        "only one predicate with half time range(LE)",
 			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek' AND time <= '2019-08-18T00:30:00Z'",
-			expected:    "{(location='coyote_creek'[string])}",
+			expected:    "{empty}",
 		},
 		{
 			name:        "one condition and time range without GROUP BY",
 			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek' AND  time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z'",
-			expected:    "{(location='coyote_creek'[string])}",
+			expected:    "{empty}",
 		},
 		{
 			name:        "one condition and time range with GROUP BY",
 			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek' AND  time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY location",
-			expected:    "{(location='coyote_creek'[string])}",
+			expected:    "{empty}",
 		},
 		{
 			name:        "one condition with GROUP BY",
 			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek' GROUP BY location",
-			expected:    "{(location='coyote_creek'[string])}",
+			expected:    "{empty}",
 		},
 		{
 			name:        "only half time range(LT) with GROUP BY",
@@ -1531,28 +1629,41 @@ func TestGetSP(t *testing.T) {
 		{
 			name:        "two conditions and time range with GROUP BY",
 			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek' AND randtag='2' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY location",
-			expected:    "{(location='coyote_creek'[string])(randtag='2'[string])}",
+			expected:    "{empty}",
 		},
 		{
 			name:        "three conditions and time range with GROUP BY",
 			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek' AND randtag='2' AND index>=50 AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY location",
-			expected:    "{(location='coyote_creek'[string])(randtag='2'[string])(index>=50[int64])}",
+			expected:    "{(index>=50[int64])}",
 		},
 		{
 			name:        "three conditions(OR)",
 			queryString: "SELECT water_level FROM h2o_feet WHERE location <> 'santa_monica' AND (water_level < -0.59 OR water_level > 9.95)",
-			expected:    "{(location!='santa_monica'[string])(water_level<-0.590[float64])(water_level>9.950[float64])}",
+			expected:    "{(water_level<-0.590[float64])(water_level>9.950[float64])}",
 		},
 		{
 			name:        "three conditions(OR) and time range",
 			queryString: "SELECT water_level FROM h2o_feet WHERE location <> 'santa_monica' AND (water_level < -0.59 OR water_level > 9.95) AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY location",
-			expected:    "{(location!='santa_monica'[string])(water_level<-0.590[float64])(water_level>9.950[float64])}",
+			expected:    "{empty}",
 		},
+	}
+
+	c, err := NewHTTPClient(HTTPConfig{
+		Addr: "http://10.170.48.244:8086",
+		//Username: username,
+		//Password: password,
+	})
+	if err != nil {
+		log.Fatal(err)
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			SP := GetSP(tt.queryString)
+			q := NewQuery(tt.queryString, MyDB, "ns")
+			resp, _ := c.Query(q)
+			tagMap := GetTagKV(c, MyDB)
+			SP := GetSP(tt.queryString, resp, tagMap)
+			//fmt.Println(SP)
 			if !reflect.DeepEqual(SP, tt.expected) {
 				t.Errorf("SP:\t%s\nexpected:\t%s", SP, tt.expected)
 			}
@@ -1759,7 +1870,7 @@ func TestSemanticSegment(t *testing.T) {
 	}
 
 	c, err := NewHTTPClient(HTTPConfig{
-		Addr: "http://localhost:8086",
+		Addr: "http://10.170.48.244:8086",
 		//Username: username,
 		//Password: password,
 	})
@@ -1784,7 +1895,7 @@ func TestSemanticSegment(t *testing.T) {
 
 func TestSeperateSemanticSegment(t *testing.T) {
 	c, err := NewHTTPClient(HTTPConfig{
-		Addr: "http://localhost:8086",
+		Addr: "http://10.170.48.244:8086",
 		//Username: username,
 		//Password: password,
 	})
@@ -1895,7 +2006,7 @@ func TestGetTagArr(t *testing.T) {
 	}
 
 	c, err := NewHTTPClient(HTTPConfig{
-		Addr: "http://localhost:8086",
+		Addr: "http://10.170.48.244:8086",
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -1937,7 +2048,7 @@ func TestGetResponseTimeRange(t *testing.T) {
 	}
 
 	c, err := NewHTTPClient(HTTPConfig{
-		Addr: "http://localhost:8086",
+		Addr: "http://10.170.48.244:8086",
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -1963,7 +2074,7 @@ func TestGetResponseTimeRange(t *testing.T) {
 
 func TestSortResponseWithTimeRange(t *testing.T) {
 	c, err := NewHTTPClient(HTTPConfig{
-		Addr: "http://localhost:8086",
+		Addr: "http://10.170.48.244:8086",
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -2034,7 +2145,7 @@ func TestSortResponseWithTimeRange(t *testing.T) {
 
 func TestSortResponseWithTimeRange2(t *testing.T) {
 	c, err := NewHTTPClient(HTTPConfig{
-		Addr: "http://localhost:8086",
+		Addr: "http://10.170.48.244:8086",
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -2113,7 +2224,7 @@ func TestSortResponseWithTimeRange2(t *testing.T) {
 
 func TestSortResponses(t *testing.T) {
 	c, err := NewHTTPClient(HTTPConfig{
-		Addr: "http://localhost:8086",
+		Addr: "http://10.170.48.244:8086",
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -2206,6 +2317,11 @@ func TestSortResponses(t *testing.T) {
 			resps:    []*Response{resp3, resp1, resp2, resp5, resp4},
 			expected: []*Response{resp1, resp2, resp3, resp4, resp5},
 		},
+		{
+			name:     " 5 4 3 2 1 ",
+			resps:    []*Response{resp5, resp4, resp3, resp2, resp1},
+			expected: []*Response{resp1, resp2, resp3, resp4, resp5},
+		},
 	}
 
 	for _, tt := range tests {
@@ -2224,7 +2340,7 @@ func TestSortResponses(t *testing.T) {
 
 func TestSortResponses2(t *testing.T) {
 	c, err := NewHTTPClient(HTTPConfig{
-		Addr: "http://localhost:8086",
+		Addr: "http://10.170.48.244:8086",
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -2296,7 +2412,7 @@ func TestSortResponses2(t *testing.T) {
 
 func TestMergeResultTable(t *testing.T) {
 	c, err := NewHTTPClient(HTTPConfig{
-		Addr: "http://localhost:8086",
+		Addr: "http://10.170.48.244:8086",
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -2519,7 +2635,7 @@ func TestMergeResultTable(t *testing.T) {
 
 func TestMergeResultTable2(t *testing.T) {
 	c, err := NewHTTPClient(HTTPConfig{
-		Addr: "http://localhost:8086",
+		Addr: "http://10.170.48.244:8086",
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -2673,7 +2789,7 @@ func TestMergeResultTable2(t *testing.T) {
 
 func TestMerge(t *testing.T) {
 	c, err := NewHTTPClient(HTTPConfig{
-		Addr: "http://localhost:8086",
+		Addr: "http://10.170.48.244:8086",
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -2917,7 +3033,7 @@ func TestMerge(t *testing.T) {
 
 func TestMerge2(t *testing.T) {
 	c, err := NewHTTPClient(HTTPConfig{
-		Addr: "http://localhost:8086",
+		Addr: "http://10.170.48.244:8086",
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -3195,7 +3311,7 @@ func TestMerge2(t *testing.T) {
 
 func TestGetSeriesTagsMap(t *testing.T) {
 	c, err := NewHTTPClient(HTTPConfig{
-		Addr: "http://localhost:8086",
+		Addr: "http://10.170.48.244:8086",
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -3285,7 +3401,7 @@ func TestTagsMapToString(t *testing.T) {
 
 func TestMergeSeries(t *testing.T) {
 	c, err := NewHTTPClient(HTTPConfig{
-		Addr: "http://localhost:8086",
+		Addr: "http://10.170.48.244:8086",
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -3404,7 +3520,7 @@ func TestMergeSeries(t *testing.T) {
 
 func TestMergeSeries2(t *testing.T) {
 	c, err := NewHTTPClient(HTTPConfig{
-		Addr: "http://localhost:8086",
+		Addr: "http://10.170.48.244:8086",
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -3555,14 +3671,15 @@ func TestMergeSeries2(t *testing.T) {
 
 func TestResponse_ToByteArray(t *testing.T) {
 	c, err := NewHTTPClient(HTTPConfig{
-		Addr: "http://localhost:8086",
+		Addr: "http://10.170.48.244:8086",
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
 	mc := memcache.New("localhost:11213")
 
-	queryMemcache := "SELECT randtag,index FROM h2o_quality limit 5"
+	//queryMemcache := "SELECT randtag,index FROM h2o_quality limit 5"
+	queryMemcache := "SELECT index FROM h2o_quality WHERE location='coyote_creek' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag"
 	qm := NewQuery(queryMemcache, MyDB, "")
 	respCache, _ := c.Query(qm)
 
@@ -3603,11 +3720,33 @@ func TestResponse_ToByteArray(t *testing.T) {
 	if err != nil {
 		log.Fatalf("Error deleting value: %v", err)
 	}
+
+	/* 查询结果转换成字节数组的格式如下
+		seprateSM1 len1\r\n
+		values
+		seprateSM2 len2\r\n
+		values
+		......
+
+	seprateSM: 每张表的 tags 和整个查询的其余元数据组合成的 每张表的元数据	string，到空格符为止
+	len: 每张表中数据的总字节数		int64，空格符后面的8个字节
+	values: 数据，暂时由换行符分隔每条数据，如果需要去掉换行符，要修改的部分已在代码中标明
+	*/
+	// {(h2o_quality.randtag=1)}#{time[int64],index[int64]}#{(location='coyote_creek'[string])}#{empty,empty} [0 0 0 0 0 0 0 48]
+	// 2019-08-18T00:06:00Z 66
+	// 2019-08-18T00:18:00Z 91
+	// 2019-08-18T00:24:00Z 29
+	// {(h2o_quality.randtag=2)}#{time[int64],index[int64]}#{(location='coyote_creek'[string])}#{empty,empty} [0 0 0 0 0 0 0 16]
+	// 2019-08-18T00:12:00Z 78
+	// {(h2o_quality.randtag=3)}#{time[int64],index[int64]}#{(location='coyote_creek'[string])}#{empty,empty} [0 0 0 0 0 0 0 32]
+	// 2019-08-18T00:00:00Z 85
+	// 2019-08-18T00:30:00Z 75
 }
 
+// 数据太多导致测试运行可能不通过，可以多试几次，或者去掉导致问题的测试用例（已经注释掉了）
 func TestByteArrayToResponse(t *testing.T) {
 	c, err := NewHTTPClient(HTTPConfig{
-		Addr: "http://localhost:8086",
+		Addr: "http://10.170.48.244:8086",
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -3622,37 +3761,83 @@ func TestByteArrayToResponse(t *testing.T) {
 		{
 			name:        "one table three columns",
 			queryString: "SELECT randtag,index FROM h2o_quality limit 5",
-			expected:    "",
+			expected: "{(h2o_quality.empty_tag)}#{time[int64],randtag[string],index[int64]}#{empty}#{empty,empty} [0 0 0 0 0 0 0 205]\r\n" +
+				"[1566000000000000000 1 41]\r\n" +
+				"[1566000000000000000 2 99]\r\n" +
+				"[1566000360000000000 3 11]\r\n" +
+				"[1566000360000000000 2 56]\r\n" +
+				"[1566000720000000000 3 65]\r\n",
 		},
 		{
 			name:        "one table four columns",
 			queryString: "SELECT randtag,index,location FROM h2o_quality limit 5",
-			expected:    "",
+			expected: "{(h2o_quality.empty_tag)}#{time[int64],randtag[string],index[int64],location[string]}#{empty}#{empty,empty} [0 0 0 0 0 0 1 74]\r\n" +
+				"[1566000000000000000 1 41 coyote_creek]\r\n" +
+				"[1566000000000000000 2 99 santa_monica]\r\n" +
+				"[1566000360000000000 3 11 coyote_creek]\r\n" +
+				"[1566000360000000000 2 56 santa_monica]\r\n" +
+				"[1566000720000000000 3 65 santa_monica]\r\n",
 		},
 		{ // Get() 的最大字节数限制 ?	和字节数无关，只能读取最多 64 条数据（怎么会和数据条数相关 ?）
 			name:        "one table two columns",
-			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek' AND  time >= '2019-08-18T00:00:00Z' limit 64",
-			expected:    "",
+			queryString: "SELECT index,location FROM h2o_quality WHERE location='coyote_creek' AND  time >= '2019-08-18T00:00:00Z' limit 65",
+			expected: "{(h2o_quality.empty_tag)}#{time[int64],index[int64]}#{(location='coyote_creek'[string])}#{empty,empty} [0 0 0 0 0 0 4 0]\r\n" +
+				"[1566086400000000000 85]\r\n" +
+				"[1566086760000000000 66]\r\n" +
+				"......(共64条数据)",
 		},
+		//{ // Get() 的最大字节数限制 ?	和字节数无关，只能读取最多 64 条数据（怎么会和数据条数相关 ?）	去掉了Get()中的异常处理，可以正常用了，但是为什么?
+		//	name:        "one table two columns without limit",
+		//	queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek' AND  time >= '2019-08-18T00:00:00Z'",
+		//	expected: "{(h2o_quality.empty_tag)}#{time[int64],index[int64]}#{(location='coyote_creek'[string])}#{empty,empty} [0 0 0 0 0 0 4 0]\r\n" +
+		//		"[1566086400000000000 85]\r\n" +
+		//		"[1566086760000000000 66]\r\n" +
+		//		"......",
+		//},
 		{
 			name:        "three tables two columns",
 			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag",
-			expected:    "",
+			expected: "{(h2o_quality.randtag=1)}#{time[int64],index[int64]}#{(location='coyote_creek'[string])}#{empty,empty} [0 0 0 0 0 0 0 48]\r\n" +
+				"[1566086760000000000 66]\r\n" +
+				"[1566087480000000000 91]\r\n" +
+				"[1566087840000000000 29]\r\n" +
+				"{(h2o_quality.randtag=2)}#{time[int64],index[int64]}#{(location='coyote_creek'[string])}#{empty,empty} [0 0 0 0 0 0 0 16]\r\n" +
+				"[1566087120000000000 78]\r\n" +
+				"{(h2o_quality.randtag=3)}#{time[int64],index[int64]}#{(location='coyote_creek'[string])}#{empty,empty} [0 0 0 0 0 0 0 32]\r\n" +
+				"[1566086400000000000 85]\r\n" +
+				"[1566088200000000000 75]\r\n",
 		},
-		//{	// length of key out of range(309 bytes) 不能超过250字节?
-		//	name:        "three tables four columns",
-		//	queryString: "SELECT index,location,randtag FROM h2o_quality WHERE location='coyote_creek' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag,location",
-		//	expected:    "",
-		//},
+		{ // length of key out of range(309 bytes) 不能超过250字节?
+			name:        "three tables four columns",
+			queryString: "SELECT index,location,randtag FROM h2o_quality WHERE location='coyote_creek' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag,location",
+			expected: "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=1)}#{time[int64],index[int64],location[string],randtag[string]}#{(location='coyote_creek'[string])}#{empty,empty} [0 0 0 0 0 0 0 198]\r\n" +
+				"[1566086760000000000 66 coyote_creek 1]\r\n" +
+				"[1566087480000000000 91 coyote_creek 1]\r\n" +
+				"[1566087840000000000 29 coyote_creek 1]\r\n" +
+				"{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)}#{time[int64],index[int64],location[string],randtag[string]}#{(location='coyote_creek'[string])}#{empty,empty} [0 0 0 0 0 0 0 66]\r\n" +
+				"[1566087120000000000 78 coyote_creek 2]\r\n" +
+				"{(h2o_quality.location=coyote_creek,h2o_quality.randtag=3)}#{time[int64],index[int64],location[string],randtag[string]}#{(location='coyote_creek'[string])}#{empty,empty} [0 0 0 0 0 0 0 132]\r\n" +
+				"[1566086400000000000 85 coyote_creek 3]\r\n" +
+				"[1566088200000000000 75 coyote_creek 3]\r\n",
+		},
 		{
 			name:        "one table four columns",
 			queryString: "SELECT index,location,randtag FROM h2o_quality WHERE location='coyote_creek' AND randtag='2' AND index>50 AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag,location",
-			expected:    "",
+			expected: "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)}#{time[int64],index[int64],location[string],randtag[string]}#{(location='coyote_creek'[string])(randtag='2'[string])(index>50[int64])}#{empty,empty} [0 0 0 0 0 0 0 66]\r\n" +
+				"[1566087120000000000 78 coyote_creek 2]\r\n",
 		},
 		{
 			name:        "two tables four columns",
 			queryString: "SELECT index,location,randtag FROM h2o_quality WHERE location='coyote_creek' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag,location",
-			expected:    "",
+			expected: "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=1)}#{time[int64],index[int64],location[string],randtag[string]}#{(location='coyote_creek'[string])}#{empty,empty} [0 0 0 0 0 0 0 198]\r\n" +
+				"[1566086760000000000 66 coyote_creek 1]\r\n" +
+				"[1566087480000000000 91 coyote_creek 1]\r\n" +
+				"[1566087840000000000 29 coyote_creek 1]\r\n" +
+				"{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)}#{time[int64],index[int64],location[string],randtag[string]}#{(location='coyote_creek'[string])}#{empty,empty} [0 0 0 0 0 0 0 66]\r\n" +
+				"[1566087120000000000 78 coyote_creek 2]\r\n" +
+				"{(h2o_quality.location=coyote_creek,h2o_quality.randtag=3)}#{time[int64],index[int64],location[string],randtag[string]}#{(location='coyote_creek'[string])}#{empty,empty} [0 0 0 0 0 0 0 132]\r\n" +
+				"[1566086400000000000 85 coyote_creek 3]\r\n" +
+				"[1566088200000000000 75 coyote_creek 3]\r\n",
 		},
 	}
 
@@ -3667,6 +3852,7 @@ func TestByteArrayToResponse(t *testing.T) {
 			/* Set() 存入cache */
 			semanticSegment := SemanticSegment(tt.queryString, resp)
 			startTime, endTime := GetResponseTimeRange(resp)
+			respString := resp.ToString()
 			respCacheByte := resp.ToByteArray(tt.queryString)
 			tableNumbers := int64(len(resp.Results[0].Series))
 			err = mc.Set(&memcache.Item{Key: semanticSegment, Value: respCacheByte, Time_start: startTime, Time_end: endTime, NumOfTables: tableNumbers})
@@ -3689,13 +3875,15 @@ func TestByteArrayToResponse(t *testing.T) {
 			respConverted := ByteArrayToResponse(valueBytes)
 			fmt.Println("Convert successfully")
 
-			if strings.Compare(resp.ToString(), respConverted.ToString()) != 0 {
+			if strings.Compare(respString, respConverted.ToString()) != 0 {
 				t.Errorf("fail to convert:different response")
 			}
 			fmt.Println("Same before and after convert")
 
-			fmt.Println("resp:\n", resp.ToString())
-			fmt.Println("resp converted:\n", respConverted.ToString())
+			fmt.Println("resp:\n", *resp)
+			fmt.Println("resp converted:\n", *respConverted)
+			//fmt.Println("resp:\n", resp.ToString())
+			//fmt.Println("resp converted:\n", respConverted.ToString())
 			fmt.Println()
 			fmt.Println()
 		})
@@ -3988,14 +4176,25 @@ func TestTimeInt64ToString(t *testing.T) {
 	}
 }
 
-// done 根据查询时向 client.Query() 传入的时间的参数不同，会返回string和int64的不同类型的结果
+// done 根据查询时向 client.Query() 传入的时间的参数不同，会返回string和int64的不同类型的时间戳
 /*
 	暂时把cache传回的字节数组只处理成int64
 */
 
-// todo Get()有长度限制，在哪里改
+// done Get()有长度限制，在哪里改
 /*
 	和字节数无关，只能读取最多 64 条数据（怎么会和数据条数相关 ?）
+
+	说明：Get()按照 '\n' 读取每一行数据，字节码为 10 ，如果数据中有 int64 类型的 10，会错误地把数字当作换行符结束读取，导致一行的结尾不是 CRLF，报错
+		可以去掉判断结尾是 CRLF 的异常处理，让Get()即使提前结束当前行的读取，也能继续读取下一行
+		但是应该怎么判断结束一行的读取 ?(答案在下面)
+*/
+
+// done Get()设置合适的结束读取一行的条件，让他能完整的读取一行数据，不会混淆换行符和数字10
+/*
+	根本无所谓，无论Get()怎样从cache读取数据，无论当前读到的一行是否完整，都是把读到的所有字节直接存到字节数组中，不需要在Get()做任何处理
+	Get()读取完cache返回的所有数据之后，把 未经处理 的整个字节数组交由客户端转换成结果类型，转换过程按照数据类型读取固定的字节数并转换，不受Get()的读取方式的影响
+	Get()按任意方式从cache读取数据，最终的字节数组都是相同的，对结果没有影响
 */
 
 // done cache 的所有操作的 key 都有长度限制
@@ -4032,7 +4231,7 @@ func TestTimeInt64ToString(t *testing.T) {
 	tag 字符串为空，存入数组时也是有长度的，不会出现数组越界，用空串进行比较等操作没有问题，会直接把唯一的表合并
 */
 
-// done  Merge()传入不合适的时间精度时会报错，是什么引起的，怎么解决
+// done  测试时Merge()传入不合适的时间精度时会报错，是什么引起的，怎么解决
 /*
-	时间精度不合适导致没能合并，此时结果中的表数量多于 expected 中的表数量，用tests的索引遍历输出expected的表时出现数组越界问题，不是函数本身的问题
+	时间精度不合适导致没能合并，此时结果中的表数量多于 expected 中的表数量，用tests的索引遍历输出expected的表时出现数组越界问题，不是Merge()函数本身的问题
 */

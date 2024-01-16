@@ -573,12 +573,12 @@ func parseGetResponse(r *bufio.Reader, itemValues *[]byte, cb func(*Item)) (err 
 	}*/
 
 	for { //每次读入一行，直到 Reader 为空
-		line, err := r.ReadSlice('\n') //从查寻结果中读取一行
+		line, err := r.ReadBytes('\n') //从查寻结果中读取一行, 换行符对应的字节码是 10， 如果数据中有 int64 类型的 10，读取时会把数字错误当作换行符
 		if err != nil {
 			return err
 		}
 		//fmt.Printf("%s", line)
-		if bytes.Equal(line, resultEnd) { // get 命令查询结束后会在命令行输出 "END", 如果读到 END，说明数据读取完毕
+		if bytes.Equal(line, resultEnd) { // get 命令查询结束后会在数据末尾添加 "END", 如果读到 END，说明数据读取完毕
 			return nil
 		}
 		it := new(Item)
@@ -587,12 +587,11 @@ func parseGetResponse(r *bufio.Reader, itemValues *[]byte, cb func(*Item)) (err 
 			it.Value = nil
 			return err
 		}
-		if !bytes.HasSuffix(it.Value, crlf) { // HasSuffix tests whether the byte slice s ends with suffix(crlf).	一行数据的末尾必须是crlf( "\r\n" )
-			it.Value = nil
-			return fmt.Errorf("memcache: corrupt get result read")
-		}
+		//if !bytes.HasSuffix(it.Value, crlf) { // HasSuffix tests whether the byte slice s ends with suffix(crlf).	一行数据的末尾必须是crlf( "\r\n" )
+		//	it.Value = nil
+		//	return fmt.Errorf("memcache: corrupt get result read")
+		//}
 		cb(it)
-
 		*itemValues = append(*itemValues, it.Value...)
 	}
 }
@@ -717,7 +716,7 @@ func (c *Client) populateOne(rw *bufio.ReadWriter, verb string, item *Item) erro
 	} else { //   set
 
 		_, err = fmt.Fprintf(rw, "%s %s %d %d %d\r\n", //用item的基本信息构建命令的第一行，存入rw buffer	如：set user 0 0 3
-			verb, item.Key, len(item.Value), item.Time_start, item.Time_end) // set key len st et	memcache的set格式暂时是这样，ts实际上应该输入值的长度
+			verb, item.Key, len(item.Value), item.Time_start, item.Time_end) // set key len st et	memcache的set格式暂时是这样
 		//_, err = fmt.Fprintf(rw, "%s %s %d %d %d\r\n",
 		//	verb, item.Key, item.Time_start, item.Time_end, item.NumOfTables)	//最终格式是这样的（大概），最后一个参数是结果中表的数量
 	}
