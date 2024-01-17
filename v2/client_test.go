@@ -996,16 +996,6 @@ func TestSet(t *testing.T) {
 		"SELECT index,location,randtag FROM h2o_quality WHERE location='coyote_creek' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag,location",
 	}
 
-	c, err := NewHTTPClient(HTTPConfig{
-		Addr: "http://10.170.48.244:8086",
-		//Username: username,
-		//Password: password,
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
-	mc := memcache.New("localhost:11213")
-
 	for _, qs := range queryStrings {
 		err := Set(qs, c, mc)
 		if err != nil {
@@ -1016,14 +1006,7 @@ func TestSet(t *testing.T) {
 }
 
 func TestGetFieldKeys(t *testing.T) {
-	c, err := NewHTTPClient(HTTPConfig{
-		Addr: "http://10.170.48.244:8086",
-		//Username: username,
-		//Password: password,
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
+
 	fieldKeys := GetFieldKeys(c, MyDB)
 
 	expected := make(map[string][]string)
@@ -1046,14 +1029,6 @@ func TestGetFieldKeys(t *testing.T) {
 }
 
 func TestGetTagKV(t *testing.T) {
-	c, err := NewHTTPClient(HTTPConfig{
-		Addr: "http://10.170.48.244:8086",
-		//Username: username,
-		//Password: password,
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
 	measurementTagMap := GetTagKV(c, MyDB)
 	expected := make(map[string][]string)
 	expected["h2o_feet"] = []string{"location"}
@@ -1086,14 +1061,6 @@ func TestGetTagKV(t *testing.T) {
 }
 
 func TestGetSM(t *testing.T) {
-	c, err := NewHTTPClient(HTTPConfig{
-		Addr: "http://10.170.48.244:8086",
-		//Username: username,
-		//Password: password,
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
 
 	tests := []struct {
 		name        string
@@ -1103,12 +1070,12 @@ func TestGetSM(t *testing.T) {
 		{
 			name:        "empty tag caused by having query results but no tags",
 			queryString: "SELECT water_level FROM h2o_feet WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z'",
-			expected:    "{(h2o_feet.empty_tag)}",
+			expected:    "{(h2o_feet.empty)}",
 		},
 		{
 			name:        "empty tag caused by no query results",
 			queryString: "SELECT water_level FROM h2o_feet WHERE time >= '2024-08-18T00:00:00Z' AND time <= '2024-08-18T00:30:00Z'",
-			expected:    "{empty result}",
+			expected:    "{empty}",
 		},
 		{
 			name:        "one tag with two tables",
@@ -1123,7 +1090,7 @@ func TestGetSM(t *testing.T) {
 		{
 			name:        "only time interval without tags",
 			queryString: "SELECT COUNT(water_level) FROM h2o_feet WHERE location='coyote_creek' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY time(12m)",
-			expected:    "{(h2o_feet.empty_tag)}",
+			expected:    "{(h2o_feet.location=coyote_creek)}",
 		},
 		{
 			name:        "one specific tag with time interval",
@@ -1140,6 +1107,31 @@ func TestGetSM(t *testing.T) {
 			queryString: "SELECT COUNT(index) FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY location,time(12m),randtag",
 			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=1)(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)(h2o_quality.location=coyote_creek,h2o_quality.randtag=3)(h2o_quality.location=santa_monica,h2o_quality.randtag=1)(h2o_quality.location=santa_monica,h2o_quality.randtag=2)(h2o_quality.location=santa_monica,h2o_quality.randtag=3)}",
 		},
+		{
+			name:        "one tag with one predicate",
+			queryString: "SELECT index FROM h2o_quality WHERE randtag='2' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY location",
+			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)(h2o_quality.location=santa_monica,h2o_quality.randtag=2)}",
+		},
+		{
+			name:        "one tag with one predicate, without GROUP BY",
+			queryString: "SELECT index FROM h2o_quality WHERE randtag='2' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z'",
+			expected:    "{(h2o_quality.randtag=2)}",
+		},
+		{
+			name:        "one tag with two predicates",
+			queryString: "SELECT index,randtag,location FROM h2o_quality WHERE randtag='2' AND location='santa_monica' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z'",
+			expected:    "{(h2o_quality.location=santa_monica,h2o_quality.randtag=2)}",
+		},
+		{
+			name:        "one tag with two predicates",
+			queryString: "SELECT index,randtag,location FROM h2o_quality WHERE randtag='2' AND location='santa_monica' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z'GROUP BY randtag",
+			expected:    "{(h2o_quality.location=santa_monica,h2o_quality.randtag=2)}",
+		},
+		{
+			name:        "one tag with two predicates",
+			queryString: "SELECT index,randtag,location FROM h2o_quality WHERE randtag='2' AND location='santa_monica' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z'GROUP BY randtag,location",
+			expected:    "{(h2o_quality.location=santa_monica,h2o_quality.randtag=2)}",
+		},
 	}
 
 	for _, tt := range tests {
@@ -1151,10 +1143,11 @@ func TestGetSM(t *testing.T) {
 				log.Println(err)
 			}
 
-			SM := GetSM(response)
+			_, tagPredicates := GetSP(tt.queryString, response, TagKV)
+			SM := GetSM(response, tagPredicates)
 
 			if strings.Compare(SM, tt.expected) != 0 {
-				t.Errorf("GetSM:query\t%s\nSM=%s\nexpected:%s", tt.queryString, SM, tt.expected)
+				t.Errorf("\nSM=%s\nexpected:%s", SM, tt.expected)
 			}
 
 		})
@@ -1163,14 +1156,6 @@ func TestGetSM(t *testing.T) {
 }
 
 func TestGetSeperateSM(t *testing.T) {
-	c, err := NewHTTPClient(HTTPConfig{
-		Addr: "http://10.170.48.244:8086",
-		//Username: username,
-		//Password: password,
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
 
 	tests := []struct {
 		name        string
@@ -1180,12 +1165,12 @@ func TestGetSeperateSM(t *testing.T) {
 		{
 			name:        "empty Result",
 			queryString: "SELECT index FROM h2o_quality WHERE time >= '2029-08-18T00:00:00Z' AND time <= '2029-08-18T00:30:00Z' GROUP BY randtag,location",
-			expected:    []string{"{empty result}"},
+			expected:    []string{"{empty}"},
 		},
 		{
 			name:        "empty tag",
 			queryString: "SELECT index FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z'",
-			expected:    []string{"{(h2o_quality.empty_tag)}"},
+			expected:    []string{"{(h2o_quality.empty)}"},
 		},
 		{
 			name:        "one table one tag",
@@ -1206,14 +1191,23 @@ func TestGetSeperateSM(t *testing.T) {
 				"{(h2o_quality.location=santa_monica,h2o_quality.randtag=3)}",
 			},
 		},
+		{
+			name:        "one tag with one predicate",
+			queryString: "SELECT index FROM h2o_quality WHERE randtag='2' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY location",
+			expected: []string{
+				"{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)}",
+				"{(h2o_quality.location=santa_monica,h2o_quality.randtag=2)}",
+			},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			q := NewQuery(tt.queryString, MyDB, "")
 			resp, _ := c.Query(q)
+			_, tagPredicates := GetSP(tt.queryString, resp, TagKV)
 
-			sepSM := GetSeperateSM(resp)
+			sepSM := GetSeperateSM(resp, tagPredicates)
 
 			for i, s := range sepSM {
 				if strings.Compare(s, tt.expected[i]) != 0 {
@@ -1325,14 +1319,6 @@ func TestGetSFSG(t *testing.T) {
 }
 
 func TestGetSFSGWithDataType(t *testing.T) {
-	c, err := NewHTTPClient(HTTPConfig{
-		Addr: "http://10.170.48.244:8086",
-		//Username: username,
-		//Password: password,
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
 
 	tests := []struct {
 		name        string
@@ -1547,125 +1533,50 @@ func TestPreOrderTraverseBinaryExpr(t *testing.T) {
 
 func TestGetSP(t *testing.T) {
 	tests := []struct {
-		name        string
-		queryString string
-		expected    string
+		name         string
+		queryString  string
+		expected     string
+		expectedTags []string
 	}{
 		{
-			name:        "without WHERE clause",
-			queryString: "SELECT index FROM h2o_quality",
-			expected:    "{empty}",
+			name:         "three conditions and time range with GROUP BY",
+			queryString:  "SELECT index FROM h2o_quality WHERE randtag='2' AND index>=50 AND location='santa_monica' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY location",
+			expected:     "{(index>=50[int64])}",
+			expectedTags: []string{"location=santa_monica", "randtag=2"},
 		},
 		{
-			name:        "only one predicate without time range",
-			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek'",
-			expected:    "{empty}",
+			name:         "three conditions and time range with GROUP BY",
+			queryString:  "SELECT index FROM h2o_quality WHERE location='coyote_creek' AND randtag='2' AND index>=50 AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY location",
+			expected:     "{(index>=50[int64])}",
+			expectedTags: []string{"location=coyote_creek", "randtag=2"},
 		},
 		{
-			name:        "only time range(GE,LE)",
-			queryString: "SELECT index FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z'",
-			expected:    "{empty}",
+			name:         "three conditions(OR)",
+			queryString:  "SELECT water_level FROM h2o_feet WHERE location != 'santa_monica' AND (water_level < -0.59 OR water_level > 9.95)",
+			expected:     "{(water_level<-0.590[float64])(water_level>9.950[float64])}",
+			expectedTags: []string{"location!=santa_monica"},
 		},
 		{
-			name:        "only time range(EQ)",
-			queryString: "SELECT index FROM h2o_quality WHERE time = '2019-08-18T00:00:00Z'",
-			expected:    "{empty}",
+			name:         "three conditions and time range",
+			queryString:  "SELECT water_level FROM h2o_feet WHERE location <> 'santa_monica' AND (water_level > -0.59 AND water_level < 9.95) AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY location",
+			expected:     "{(water_level>-0.590[float64])(water_level<9.950[float64])}",
+			expectedTags: []string{"location!=santa_monica"},
 		},
-		//{		// now()是当前时间，能正常用
-		//	name:        "only time range(NOW)",
-		//	queryString: "SELECT index FROM h2o_quality WHERE time <= now()",
-		//	expected:    "{empty}",
-		//},
-		{
-			name:        "only time range(GT,LT)",
-			queryString: "SELECT index FROM h2o_quality WHERE time > '2019-08-18T00:00:00Z' AND time < '2019-08-18T00:30:00Z'",
-			expected:    "{empty}",
-		},
-		{
-			name:        "only half time range(GE)",
-			queryString: "SELECT index FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z'",
-			expected:    "{empty}",
-		},
-		{
-			name:        "only half time range(LT)",
-			queryString: "SELECT index FROM h2o_quality WHERE time < '2019-08-18T00:30:00Z'",
-			expected:    "{empty}",
-		},
-		{
-			name:        "only half time range with arithmetic",
-			queryString: "SELECT index FROM h2o_quality WHERE time <= '2019-08-18T00:30:00Z' - 10m",
-			expected:    "{empty}",
-		},
-		{
-			name:        "only one predicate with half time range(GE)",
-			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek' AND  time >= '2019-08-18T00:00:00Z'",
-			expected:    "{empty}",
-		},
-		{
-			name:        "only one predicate with half time range(LE)",
-			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek' AND time <= '2019-08-18T00:30:00Z'",
-			expected:    "{empty}",
-		},
-		{
-			name:        "one condition and time range without GROUP BY",
-			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek' AND  time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z'",
-			expected:    "{empty}",
-		},
-		{
-			name:        "one condition and time range with GROUP BY",
-			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek' AND  time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY location",
-			expected:    "{empty}",
-		},
-		{
-			name:        "one condition with GROUP BY",
-			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek' GROUP BY location",
-			expected:    "{empty}",
-		},
-		{
-			name:        "only half time range(LT) with GROUP BY",
-			queryString: "SELECT index FROM h2o_quality WHERE time <= '2015-08-18T00:42:00Z' GROUP BY location",
-			expected:    "{empty}",
-		},
-		{
-			name:        "two conditions and time range with GROUP BY",
-			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek' AND randtag='2' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY location",
-			expected:    "{empty}",
-		},
-		{
-			name:        "three conditions and time range with GROUP BY",
-			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek' AND randtag='2' AND index>=50 AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY location",
-			expected:    "{(index>=50[int64])}",
-		},
-		{
-			name:        "three conditions(OR)",
-			queryString: "SELECT water_level FROM h2o_feet WHERE location <> 'santa_monica' AND (water_level < -0.59 OR water_level > 9.95)",
-			expected:    "{(water_level<-0.590[float64])(water_level>9.950[float64])}",
-		},
-		{
-			name:        "three conditions(OR) and time range",
-			queryString: "SELECT water_level FROM h2o_feet WHERE location <> 'santa_monica' AND (water_level < -0.59 OR water_level > 9.95) AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY location",
-			expected:    "{empty}",
-		},
-	}
-
-	c, err := NewHTTPClient(HTTPConfig{
-		Addr: "http://10.170.48.244:8086",
-		//Username: username,
-		//Password: password,
-	})
-	if err != nil {
-		log.Fatal(err)
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			q := NewQuery(tt.queryString, MyDB, "ns")
 			resp, _ := c.Query(q)
-			tagMap := GetTagKV(c, MyDB)
-			SP := GetSP(tt.queryString, resp, tagMap)
+			SP, tags := GetSP(tt.queryString, resp, TagKV)
 			//fmt.Println(SP)
-			if !reflect.DeepEqual(SP, tt.expected) {
+			if strings.Compare(SP, tt.expected) != 0 {
 				t.Errorf("SP:\t%s\nexpected:\t%s", SP, tt.expected)
+			}
+			for i := range tags {
+				if strings.Compare(tags[i], tt.expectedTags[i]) != 0 {
+					t.Errorf("tag:\t%s\nexpected tag:\t%s", tags[i], tt.expectedTags[i])
+				}
 			}
 		})
 	}
@@ -1795,47 +1706,42 @@ func TestSemanticSegment(t *testing.T) {
 		{
 			name:        "without WHERE",
 			queryString: "SELECT index FROM h2o_quality",
-			expected:    "{(h2o_quality.empty_tag)}#{time[int64],index[int64]}#{empty}#{empty,empty}",
+			expected:    "{(h2o_quality.empty)}#{time[int64],index[int64]}#{empty}#{empty,empty}",
 		},
 		{
 			name:        "SF SP",
 			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek'",
-			expected:    "{(h2o_quality.empty_tag)}#{time[int64],index[int64]}#{(location='coyote_creek'[string])}#{empty,empty}",
+			expected:    "{(h2o_quality.location=coyote_creek)}#{time[int64],index[int64]}#{empty}#{empty,empty}",
 		},
 		{
-			name:        "SF ST",
-			queryString: "SELECT index FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z'",
-			expected:    "{(h2o_quality.empty_tag)}#{time[int64],index[int64]}#{empty}#{empty,empty}",
+			name:        "SF SP",
+			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek' GROUP BY randtag",
+			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=1)(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)(h2o_quality.location=coyote_creek,h2o_quality.randtag=3)}#{time[int64],index[int64]}#{empty}#{empty,empty}",
 		},
 		{
-			name:        "SF and half ST",
-			queryString: "SELECT index FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z'",
-			expected:    "{(h2o_quality.empty_tag)}#{time[int64],index[int64]}#{empty}#{empty,empty}",
+			name:        "SF SP",
+			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek' GROUP BY randtag,location",
+			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=1)(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)(h2o_quality.location=coyote_creek,h2o_quality.randtag=3)}#{time[int64],index[int64]}#{empty}#{empty,empty}",
 		},
 		{
-			name:        "SF SP and half ST",
-			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek' AND  time >= '2019-08-18T00:00:00Z'",
-			expected:    "{(h2o_quality.empty_tag)}#{time[int64],index[int64]}#{(location='coyote_creek'[string])}#{empty,empty}",
-		},
-		{
-			name:        "SF SP ST",
-			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z'",
-			expected:    "{(h2o_quality.empty_tag)}#{time[int64],index[int64]}#{(location='coyote_creek'[string])}#{empty,empty}",
+			name:        "SF SP",
+			queryString: "SELECT index FROM h2o_quality WHERE randtag='1' AND location='coyote_creek' AND index>50 GROUP BY randtag",
+			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=1)}#{time[int64],index[int64]}#{(index>50[int64])}#{empty,empty}",
 		},
 		{
 			name:        "SM SF SP ST",
 			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag",
-			expected:    "{(h2o_quality.randtag=1)(h2o_quality.randtag=2)(h2o_quality.randtag=3)}#{time[int64],index[int64]}#{(location='coyote_creek'[string])}#{empty,empty}",
+			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=1)(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)(h2o_quality.location=coyote_creek,h2o_quality.randtag=3)}#{time[int64],index[int64]}#{empty}#{empty,empty}",
 		},
 		{
 			name:        "SM SF SP ST SG",
 			queryString: "SELECT MAX(water_level) FROM h2o_feet WHERE location='coyote_creek' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY location,time(12m)",
-			expected:    "{(h2o_feet.location=coyote_creek)}#{time[int64],water_level[float64]}#{(location='coyote_creek'[string])}#{max,12m}",
+			expected:    "{(h2o_feet.location=coyote_creek)}#{time[int64],water_level[float64]}#{empty}#{max,12m}",
 		},
 		{
 			name:        "three fields without aggr",
 			queryString: "SELECT index,location,randtag FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z'",
-			expected:    "{(h2o_quality.empty_tag)}#{time[int64],index[int64],location[string],randtag[string]}#{empty}#{empty,empty}",
+			expected:    "{(h2o_quality.empty)}#{time[int64],index[int64],location[string],randtag[string]}#{empty}#{empty,empty}",
 		},
 		{
 			name:        "SM three fields without aggr",
@@ -1845,38 +1751,45 @@ func TestSemanticSegment(t *testing.T) {
 		{
 			name:        "SM SP three fields without aggr",
 			queryString: "SELECT index,location,randtag FROM h2o_quality WHERE location='coyote_creek' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag,location",
-			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=1)(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)(h2o_quality.location=coyote_creek,h2o_quality.randtag=3)}#{time[int64],index[int64],location[string],randtag[string]}#{(location='coyote_creek'[string])}#{empty,empty}",
+			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=1)(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)(h2o_quality.location=coyote_creek,h2o_quality.randtag=3)}#{time[int64],index[int64],location[string],randtag[string]}#{empty}#{empty,empty}",
 		},
 		{
 			name:        "SM SP three fields three predicates",
 			queryString: "SELECT index,location,randtag FROM h2o_quality WHERE location='coyote_creek' AND randtag='2' AND index>50 AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag,location",
-			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)}#{time[int64],index[int64],location[string],randtag[string]}#{(location='coyote_creek'[string])(randtag='2'[string])(index>50[int64])}#{empty,empty}",
+			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)}#{time[int64],index[int64],location[string],randtag[string]}#{(index>50[int64])}#{empty,empty}",
 		},
 		{
 			name:        "SP SG aggregation and three predicates",
 			queryString: "SELECT COUNT(index) FROM h2o_quality WHERE location='coyote_creek' AND randtag='2' AND index>50 AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag,location,time(10s)",
-			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)}#{time[int64],index[int64]}#{(location='coyote_creek'[string])(randtag='2'[string])(index>50[int64])}#{count,10s}",
+			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)}#{time[int64],index[int64]}#{(index>50[int64])}#{count,10s}",
+		},
+		{
+			name:        "SP SG aggregation and three predicates",
+			queryString: "SELECT COUNT(index) FROM h2o_quality WHERE location='coyote_creek' AND randtag='2' AND index>50 AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY time(10s)",
+			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)}#{time[int64],index[int64]}#{(index>50[int64])}#{count,10s}",
 		},
 		{
 			name:        "three predicates(OR)",
 			queryString: "SELECT water_level FROM h2o_feet WHERE location <> 'santa_monica' AND (water_level < -0.59 OR water_level > 9.95) AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-30T00:30:00Z' GROUP BY location",
-			expected:    "{(h2o_feet.location=coyote_creek)}#{time[int64],water_level[float64]}#{(location!='santa_monica'[string])(water_level<-0.590[float64])(water_level>9.950[float64])}#{empty,empty}",
+			expected:    "{(h2o_feet.location=coyote_creek)}#{time[int64],water_level[float64]}#{(water_level<-0.590[float64])(water_level>9.950[float64])}#{empty,empty}",
+		},
+		{
+			name:        "three predicates(OR)",
+			queryString: "SELECT water_level FROM h2o_feet WHERE location <> 'santa_monica' AND (water_level < -0.59 OR water_level > 9.95) AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-30T00:30:00Z'",
+			expected:    "{(h2o_feet.location!=santa_monica)}#{time[int64],water_level[float64]}#{(water_level<-0.590[float64])(water_level>9.950[float64])}#{empty,empty}",
 		},
 		{
 			name:        "time() and two tags",
 			queryString: "SELECT MAX(index) FROM h2o_quality WHERE randtag<>'1' AND index>=50 AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-20T00:30:00Z' GROUP BY location,time(12m),randtag",
-			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)(h2o_quality.location=coyote_creek,h2o_quality.randtag=3)(h2o_quality.location=santa_monica,h2o_quality.randtag=2)(h2o_quality.location=santa_monica,h2o_quality.randtag=3)}#{time[int64],index[int64]}#{(randtag!='1'[string])(index>=50[int64])}#{max,12m}",
+			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)(h2o_quality.location=coyote_creek,h2o_quality.randtag=3)(h2o_quality.location=santa_monica,h2o_quality.randtag=2)(h2o_quality.location=santa_monica,h2o_quality.randtag=3)}#{time[int64],index[int64]}#{(index>=50[int64])}#{max,12m}",
+		},
+		{
+			name:        "time() and two tags",
+			queryString: "SELECT MAX(index) FROM h2o_quality WHERE randtag<>'1' AND index>=50 AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-20T00:30:00Z' GROUP BY location,time(12m)",
+			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag!=1)(h2o_quality.location=santa_monica,h2o_quality.randtag!=1)}#{time[int64],index[int64]}#{(index>=50[int64])}#{max,12m}",
 		},
 	}
 
-	c, err := NewHTTPClient(HTTPConfig{
-		Addr: "http://10.170.48.244:8086",
-		//Username: username,
-		//Password: password,
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			q := NewQuery(tt.queryString, MyDB, "")
@@ -1894,14 +1807,6 @@ func TestSemanticSegment(t *testing.T) {
 }
 
 func TestSeperateSemanticSegment(t *testing.T) {
-	c, err := NewHTTPClient(HTTPConfig{
-		Addr: "http://10.170.48.244:8086",
-		//Username: username,
-		//Password: password,
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
 
 	tests := []struct {
 		name        string
@@ -1912,17 +1817,17 @@ func TestSeperateSemanticSegment(t *testing.T) {
 			name:        "empty tag",
 			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z'",
 			expected: []string{
-				"{(h2o_quality.empty_tag)}#{time[int64],index[int64]}#{(location='coyote_creek'[string])}#{empty,empty}",
+				"{(h2o_quality.location=coyote_creek)}#{time[int64],index[int64]}#{empty}#{empty,empty}",
 			},
 		},
 		{
 			name:        "four tables two tags",
 			queryString: "SELECT MAX(index) FROM h2o_quality WHERE randtag<>'1' AND index>=50 AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-20T00:30:00Z' GROUP BY location,time(12m),randtag",
 			expected: []string{
-				"{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)}#{time[int64],index[int64]}#{(randtag!='1'[string])(index>=50[int64])}#{max,12m}",
-				"{(h2o_quality.location=coyote_creek,h2o_quality.randtag=3)}#{time[int64],index[int64]}#{(randtag!='1'[string])(index>=50[int64])}#{max,12m}",
-				"{(h2o_quality.location=santa_monica,h2o_quality.randtag=2)}#{time[int64],index[int64]}#{(randtag!='1'[string])(index>=50[int64])}#{max,12m}",
-				"{(h2o_quality.location=santa_monica,h2o_quality.randtag=3)}#{time[int64],index[int64]}#{(randtag!='1'[string])(index>=50[int64])}#{max,12m}",
+				"{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)}#{time[int64],index[int64]}#{(index>=50[int64])}#{max,12m}",
+				"{(h2o_quality.location=coyote_creek,h2o_quality.randtag=3)}#{time[int64],index[int64]}#{(index>=50[int64])}#{max,12m}",
+				"{(h2o_quality.location=santa_monica,h2o_quality.randtag=2)}#{time[int64],index[int64]}#{(index>=50[int64])}#{max,12m}",
+				"{(h2o_quality.location=santa_monica,h2o_quality.randtag=3)}#{time[int64],index[int64]}#{(index>=50[int64])}#{max,12m}",
 			},
 		},
 		{
@@ -1932,6 +1837,29 @@ func TestSeperateSemanticSegment(t *testing.T) {
 				"{(h2o_quality.randtag=1)}#{time[int64],index[int64],location[string],randtag[string]}#{empty}#{empty,empty}",
 				"{(h2o_quality.randtag=2)}#{time[int64],index[int64],location[string],randtag[string]}#{empty}#{empty,empty}",
 				"{(h2o_quality.randtag=3)}#{time[int64],index[int64],location[string],randtag[string]}#{empty}#{empty,empty}",
+			},
+		},
+		{
+			name:        "",
+			queryString: "SELECT index FROM h2o_quality WHERE randtag='2' AND index<60 AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY location",
+			expected: []string{
+				"{(h2o_quality.location=santa_monica,h2o_quality.randtag=2)}#{time[int64],index[int64]}#{(index<60[int64])}#{empty,empty}",
+			},
+		},
+		{
+			name:        "",
+			queryString: "SELECT index FROM h2o_quality WHERE randtag='2' AND index>40 AND index<60 AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-09-30T00:30:00Z' GROUP BY location",
+			expected: []string{
+				"{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)}#{time[int64],index[int64]}#{(index>40[int64])(index<60[int64])}#{empty,empty}",
+				"{(h2o_quality.location=santa_monica,h2o_quality.randtag=2)}#{time[int64],index[int64]}#{(index>40[int64])(index<60[int64])}#{empty,empty}",
+			},
+		},
+		{
+			name:        "",
+			queryString: "SELECT index FROM h2o_quality WHERE randtag='2' AND index>40 AND index<60 AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-09-30T00:30:00Z' GROUP BY location,randtag",
+			expected: []string{
+				"{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)}#{time[int64],index[int64]}#{(index>40[int64])(index<60[int64])}#{empty,empty}",
+				"{(h2o_quality.location=santa_monica,h2o_quality.randtag=2)}#{time[int64],index[int64]}#{(index>40[int64])(index<60[int64])}#{empty,empty}",
 			},
 		},
 	}
@@ -2005,13 +1933,6 @@ func TestGetTagArr(t *testing.T) {
 		},
 	}
 
-	c, err := NewHTTPClient(HTTPConfig{
-		Addr: "http://10.170.48.244:8086",
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			q := NewQuery(tt.queryString, MyDB, "")
@@ -2047,13 +1968,6 @@ func TestGetResponseTimeRange(t *testing.T) {
 		},
 	}
 
-	c, err := NewHTTPClient(HTTPConfig{
-		Addr: "http://10.170.48.244:8086",
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			q := NewQuery(tt.queryString, MyDB, "")
@@ -2073,28 +1987,22 @@ func TestGetResponseTimeRange(t *testing.T) {
 }
 
 func TestSortResponseWithTimeRange(t *testing.T) {
-	c, err := NewHTTPClient(HTTPConfig{
-		Addr: "http://10.170.48.244:8086",
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
 
 	queryString1 := "SELECT COUNT(water_level) FROM h2o_feet WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY time(12m),location"
 	q := NewQuery(queryString1, MyDB, "")
-	response1, err := c.Query(q)
+	response1, _ := c.Query(q)
 	st1, et1 := GetResponseTimeRange(response1)
 
 	// 和 query1 相差一分钟	00:01:00Z
 	queryString2 := "SELECT COUNT(water_level) FROM h2o_feet WHERE time >= '2019-08-18T00:31:00Z' AND time <= '2019-08-18T01:00:00Z' GROUP BY time(12m),location"
 	q2 := NewQuery(queryString2, MyDB, "")
-	response2, err := c.Query(q2)
+	response2, _ := c.Query(q2)
 	st2, et2 := GetResponseTimeRange(response2)
 
 	// 和 query2 相差一小时	01:00:00Z
 	queryString3 := "SELECT COUNT(water_level) FROM h2o_feet WHERE time >= '2019-08-18T02:00:00Z' AND time <= '2019-08-18T02:30:00Z' GROUP BY time(12m),location"
 	q3 := NewQuery(queryString3, MyDB, "")
-	response3, err := c.Query(q3)
+	response3, _ := c.Query(q3)
 	st3, et3 := GetResponseTimeRange(response3)
 
 	tests := []struct {
@@ -2144,40 +2052,34 @@ func TestSortResponseWithTimeRange(t *testing.T) {
 }
 
 func TestSortResponseWithTimeRange2(t *testing.T) {
-	c, err := NewHTTPClient(HTTPConfig{
-		Addr: "http://10.170.48.244:8086",
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
 
 	queryString1 := "SELECT index,location,randtag FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:10:00Z' GROUP BY randtag,location"
 	q1 := NewQuery(queryString1, MyDB, "")
-	response1, err := c.Query(q1)
+	response1, _ := c.Query(q1)
 	st1, et1 := GetResponseTimeRange(response1)
 	rwtr1 := RespWithTimeRange{response1, st1, et1}
 
 	queryString2 := "SELECT index,location,randtag FROM h2o_quality WHERE time >= '2019-08-18T00:15:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag,location"
 	q2 := NewQuery(queryString2, MyDB, "")
-	response2, err := c.Query(q2)
+	response2, _ := c.Query(q2)
 	st2, et2 := GetResponseTimeRange(response2)
 	rwtr2 := RespWithTimeRange{response2, st2, et2}
 
 	queryString3 := "SELECT index,location,randtag FROM h2o_quality WHERE time >= '2019-08-18T01:31:00Z' AND time <= '2019-08-18T01:40:00Z' GROUP BY randtag,location"
 	q3 := NewQuery(queryString3, MyDB, "")
-	response3, err := c.Query(q3)
+	response3, _ := c.Query(q3)
 	st3, et3 := GetResponseTimeRange(response3)
 	rwtr3 := RespWithTimeRange{response3, st3, et3}
 
 	queryString4 := "SELECT index,location,randtag FROM h2o_quality WHERE time >= '2019-08-18T03:31:00Z' AND time <= '2019-08-18T03:40:00Z' GROUP BY randtag,location"
 	q4 := NewQuery(queryString4, MyDB, "")
-	response4, err := c.Query(q4)
+	response4, _ := c.Query(q4)
 	st4, et4 := GetResponseTimeRange(response4)
 	rwtr4 := RespWithTimeRange{response4, st4, et4}
 
 	queryString5 := "SELECT index,location,randtag FROM h2o_quality WHERE time >= '2019-08-18T03:40:00Z' AND time <= '2019-08-18T04:00:00Z' GROUP BY randtag,location"
 	q5 := NewQuery(queryString5, MyDB, "")
-	response5, err := c.Query(q5)
+	response5, _ := c.Query(q5)
 	st5, et5 := GetResponseTimeRange(response5)
 	rwtr5 := RespWithTimeRange{response5, st5, et5}
 
@@ -2223,53 +2125,47 @@ func TestSortResponseWithTimeRange2(t *testing.T) {
 }
 
 func TestSortResponses(t *testing.T) {
-	c, err := NewHTTPClient(HTTPConfig{
-		Addr: "http://10.170.48.244:8086",
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
 
 	queryString1 := "SELECT COUNT(water_level) FROM h2o_feet WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY time(12m),location"
 	q := NewQuery(queryString1, MyDB, "")
-	response1, err := c.Query(q)
+	response1, _ := c.Query(q)
 
 	// 和 query1 相差一分钟	00:01:00Z
 	queryString2 := "SELECT COUNT(water_level) FROM h2o_feet WHERE time >= '2019-08-18T00:31:00Z' AND time <= '2019-08-18T01:00:00Z' GROUP BY time(12m),location"
 	q2 := NewQuery(queryString2, MyDB, "")
-	response2, err := c.Query(q2)
+	response2, _ := c.Query(q2)
 
 	// 和 query2 相差一小时	01:00:00Z
 	queryString3 := "SELECT COUNT(water_level) FROM h2o_feet WHERE time >= '2019-08-18T02:00:00Z' AND time <= '2019-08-18T02:30:00Z' GROUP BY time(12m),location"
 	q3 := NewQuery(queryString3, MyDB, "")
-	response3, err := c.Query(q3)
+	response3, _ := c.Query(q3)
 
 	var responseNil *Response
 	responseNil = nil
 
 	query1 := "SELECT index,location,randtag FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag"
 	nq1 := NewQuery(query1, MyDB, "")
-	resp1, err := c.Query(nq1)
+	resp1, _ := c.Query(nq1)
 
 	// 1 min
 	query2 := "SELECT index,location,randtag FROM h2o_quality WHERE time >= '2019-08-18T00:31:00Z' AND time <= '2019-08-18T01:00:00Z' GROUP BY randtag"
 	nq2 := NewQuery(query2, MyDB, "")
-	resp2, err := c.Query(nq2)
+	resp2, _ := c.Query(nq2)
 
 	// 0.5 h
 	query3 := "SELECT index,location,randtag FROM h2o_quality WHERE time >= '2019-08-18T01:31:00Z' AND time <= '2019-08-18T02:00:00Z' GROUP BY randtag"
 	nq3 := NewQuery(query3, MyDB, "")
-	resp3, err := c.Query(nq3)
+	resp3, _ := c.Query(nq3)
 
 	// 1 h
 	query4 := "SELECT index,location,randtag FROM h2o_quality WHERE time >= '2019-08-18T03:00:00Z' AND time <= '2019-08-18T04:00:00Z' GROUP BY randtag"
 	nq4 := NewQuery(query4, MyDB, "")
-	resp4, err := c.Query(nq4)
+	resp4, _ := c.Query(nq4)
 
 	// 1 s
 	query5 := "SELECT index,location,randtag FROM h2o_quality WHERE time >= '2019-08-18T04:00:01Z' AND time <= '2019-08-18T04:30:00Z' GROUP BY randtag"
 	nq5 := NewQuery(query5, MyDB, "")
-	resp5, err := c.Query(nq5)
+	resp5, _ := c.Query(nq5)
 
 	tests := []struct {
 		name     string
@@ -2339,32 +2235,26 @@ func TestSortResponses(t *testing.T) {
 }
 
 func TestSortResponses2(t *testing.T) {
-	c, err := NewHTTPClient(HTTPConfig{
-		Addr: "http://10.170.48.244:8086",
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
 
 	queryString1 := "SELECT index,location,randtag FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:10:00Z' GROUP BY randtag,location"
 	q1 := NewQuery(queryString1, MyDB, "")
-	resp1, err := c.Query(q1)
+	resp1, _ := c.Query(q1)
 
 	queryString2 := "SELECT index,location,randtag FROM h2o_quality WHERE time >= '2019-08-18T00:15:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag,location"
 	q2 := NewQuery(queryString2, MyDB, "")
-	resp2, err := c.Query(q2)
+	resp2, _ := c.Query(q2)
 
 	queryString3 := "SELECT index,location,randtag FROM h2o_quality WHERE time >= '2019-08-18T01:31:00Z' AND time <= '2019-08-18T01:40:00Z' GROUP BY randtag,location"
 	q3 := NewQuery(queryString3, MyDB, "")
-	resp3, err := c.Query(q3)
+	resp3, _ := c.Query(q3)
 
 	queryString4 := "SELECT index,location,randtag FROM h2o_quality WHERE time >= '2019-08-18T03:31:00Z' AND time <= '2019-08-18T03:40:00Z' GROUP BY randtag,location"
 	q4 := NewQuery(queryString4, MyDB, "")
-	resp4, err := c.Query(q4)
+	resp4, _ := c.Query(q4)
 
 	queryString5 := "SELECT index,location,randtag FROM h2o_quality WHERE time >= '2019-08-18T03:40:00Z' AND time <= '2019-08-18T04:00:00Z' GROUP BY randtag,location"
 	q5 := NewQuery(queryString5, MyDB, "")
-	resp5, err := c.Query(q5)
+	resp5, _ := c.Query(q5)
 
 	var respNil *Response
 	respNil = nil
@@ -2411,16 +2301,10 @@ func TestSortResponses2(t *testing.T) {
 }
 
 func TestMergeResultTable(t *testing.T) {
-	c, err := NewHTTPClient(HTTPConfig{
-		Addr: "http://10.170.48.244:8086",
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
 
 	query1 := "SELECT index,location,randtag FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag,location"
 	nq1 := NewQuery(query1, MyDB, "")
-	resp1, err := c.Query(nq1)
+	resp1, _ := c.Query(nq1)
 	resp1.ToString()
 	//SCHEMA time index location randtag location=coyote_creek randtag=1
 	//2019-08-18T00:06:00Z 66 coyote_creek 1
@@ -2445,7 +2329,7 @@ func TestMergeResultTable(t *testing.T) {
 	// 1 min
 	query2 := "SELECT index,location,randtag FROM h2o_quality WHERE time >= '2019-08-18T00:31:00Z' AND time <= '2019-08-18T01:00:00Z' GROUP BY randtag,location"
 	nq2 := NewQuery(query2, MyDB, "")
-	resp2, err := c.Query(nq2)
+	resp2, _ := c.Query(nq2)
 	resp2.ToString()
 	//SCHEMA time index location randtag location=coyote_creek randtag=1
 	//2019-08-18T00:42:00Z 55 coyote_creek 1
@@ -2467,19 +2351,19 @@ func TestMergeResultTable(t *testing.T) {
 	// 0.5 h
 	query3 := "SELECT index,location,randtag FROM h2o_quality WHERE time >= '2019-08-18T01:31:00Z' AND time <= '2019-08-18T02:00:00Z' GROUP BY randtag,location"
 	nq3 := NewQuery(query3, MyDB, "")
-	resp3, err := c.Query(nq3)
+	resp3, _ := c.Query(nq3)
 	fmt.Println(resp3)
 
 	// 1 h
 	query4 := "SELECT index,location,randtag FROM h2o_quality WHERE time >= '2019-08-18T03:00:00Z' AND time <= '2019-08-18T04:00:00Z' GROUP BY randtag,location"
 	nq4 := NewQuery(query4, MyDB, "")
-	resp4, err := c.Query(nq4)
+	resp4, _ := c.Query(nq4)
 	fmt.Println(resp4)
 
 	// 1 s
 	query5 := "SELECT index,location,randtag FROM h2o_quality WHERE time >= '2019-08-18T04:00:01Z' AND time <= '2019-08-18T04:30:00Z' GROUP BY randtag,location"
 	nq5 := NewQuery(query5, MyDB, "")
-	resp5, err := c.Query(nq5)
+	resp5, _ := c.Query(nq5)
 	fmt.Println(resp5)
 
 	tests := []struct {
@@ -2634,12 +2518,7 @@ func TestMergeResultTable(t *testing.T) {
 }
 
 func TestMergeResultTable2(t *testing.T) {
-	c, err := NewHTTPClient(HTTPConfig{
-		Addr: "http://10.170.48.244:8086",
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
+
 	queryString1 := "SELECT index,location,randtag FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:10:00Z' GROUP BY randtag,location"
 	//SCHEMA time index location randtag location=coyote_creek randtag=1
 	//2019-08-18T00:06:00Z 66 coyote_creek 1
@@ -2788,16 +2667,10 @@ func TestMergeResultTable2(t *testing.T) {
 }
 
 func TestMerge(t *testing.T) {
-	c, err := NewHTTPClient(HTTPConfig{
-		Addr: "http://10.170.48.244:8086",
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
 
 	query1 := "SELECT index,location,randtag FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag,location"
 	nq1 := NewQuery(query1, MyDB, "")
-	resp1, err := c.Query(nq1)
+	resp1, _ := c.Query(nq1)
 	resp1.ToString()
 	//SCHEMA time index location randtag location=coyote_creek randtag=1
 	//2019-08-18T00:06:00Z 66 coyote_creek 1
@@ -2822,7 +2695,7 @@ func TestMerge(t *testing.T) {
 	// 1 min
 	query2 := "SELECT index,location,randtag FROM h2o_quality WHERE time >= '2019-08-18T00:31:00Z' AND time <= '2019-08-18T01:00:00Z' GROUP BY randtag,location"
 	nq2 := NewQuery(query2, MyDB, "")
-	resp2, err := c.Query(nq2)
+	resp2, _ := c.Query(nq2)
 	resp2.ToString()
 	//SCHEMA time index location randtag location=coyote_creek randtag=1
 	//2019-08-18T00:42:00Z 55 coyote_creek 1
@@ -2844,7 +2717,7 @@ func TestMerge(t *testing.T) {
 	// 30 min
 	query3 := "SELECT index,location,randtag FROM h2o_quality WHERE time >= '2019-08-18T01:31:00Z' AND time <= '2019-08-18T02:00:00Z' GROUP BY randtag,location"
 	nq3 := NewQuery(query3, MyDB, "")
-	resp3, err := c.Query(nq3)
+	resp3, _ := c.Query(nq3)
 	resp3.ToString()
 	//SCHEMA time index location randtag location=coyote_creek randtag=1
 	//2019-08-18T01:36:00Z 71 coyote_creek 1
@@ -2867,7 +2740,7 @@ func TestMerge(t *testing.T) {
 	// 1 h
 	query4 := "SELECT index,location,randtag FROM h2o_quality WHERE time >= '2019-08-18T03:00:00Z' AND time <= '2019-08-18T04:00:00Z' GROUP BY randtag,location"
 	nq4 := NewQuery(query4, MyDB, "")
-	resp4, err := c.Query(nq4)
+	resp4, _ := c.Query(nq4)
 	st4, et4 := GetResponseTimeRange(resp4)
 	fmt.Printf("st4:%d\tet4:%d\n", st4, et4)
 	resp4.ToString()
@@ -2904,7 +2777,7 @@ func TestMerge(t *testing.T) {
 	// 1 s
 	query5 := "SELECT index,location,randtag FROM h2o_quality WHERE time >= '2019-08-18T04:00:01Z' AND time <= '2019-08-18T04:30:00Z' GROUP BY randtag,location"
 	nq5 := NewQuery(query5, MyDB, "")
-	resp5, err := c.Query(nq5)
+	resp5, _ := c.Query(nq5)
 	st5, et5 := GetResponseTimeRange(resp5)
 	fmt.Printf("st5:%d\tet5:%d\n", st5, et5)
 	resp5.ToString()
@@ -3032,12 +2905,6 @@ func TestMerge(t *testing.T) {
 }
 
 func TestMerge2(t *testing.T) {
-	c, err := NewHTTPClient(HTTPConfig{
-		Addr: "http://10.170.48.244:8086",
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
 
 	queryString1 := "SELECT index,location,randtag FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:10:00Z' GROUP BY randtag,location"
 	//SCHEMA time index location randtag location=coyote_creek randtag=1
@@ -3310,12 +3177,6 @@ func TestMerge2(t *testing.T) {
 }
 
 func TestGetSeriesTagsMap(t *testing.T) {
-	c, err := NewHTTPClient(HTTPConfig{
-		Addr: "http://10.170.48.244:8086",
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
 
 	tests := []struct {
 		name        string
@@ -3400,12 +3261,6 @@ func TestTagsMapToString(t *testing.T) {
 }
 
 func TestMergeSeries(t *testing.T) {
-	c, err := NewHTTPClient(HTTPConfig{
-		Addr: "http://10.170.48.244:8086",
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
 
 	tests := []struct {
 		name        string
@@ -3519,12 +3374,6 @@ func TestMergeSeries(t *testing.T) {
 }
 
 func TestMergeSeries2(t *testing.T) {
-	c, err := NewHTTPClient(HTTPConfig{
-		Addr: "http://10.170.48.244:8086",
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
 
 	queryString1 := "SELECT index,location,randtag FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:10:00Z' GROUP BY randtag,location"
 	//SCHEMA time index location randtag location=coyote_creek randtag=1
@@ -3670,13 +3519,6 @@ func TestMergeSeries2(t *testing.T) {
 }
 
 func TestResponse_ToByteArray(t *testing.T) {
-	c, err := NewHTTPClient(HTTPConfig{
-		Addr: "http://10.170.48.244:8086",
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
-	mc := memcache.New("localhost:11213")
 
 	//queryMemcache := "SELECT randtag,index FROM h2o_quality limit 5"
 	queryMemcache := "SELECT index FROM h2o_quality WHERE location='coyote_creek' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag"
@@ -3745,13 +3587,6 @@ func TestResponse_ToByteArray(t *testing.T) {
 
 // 数据太多导致测试运行可能不通过，可以多试几次，或者去掉导致问题的测试用例（已经注释掉了）
 func TestByteArrayToResponse(t *testing.T) {
-	c, err := NewHTTPClient(HTTPConfig{
-		Addr: "http://10.170.48.244:8086",
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
-	mc := memcache.New("localhost:11213")
 
 	tests := []struct {
 		name        string
@@ -4138,7 +3973,6 @@ func TestByteArrayToFloat64(t *testing.T) {
 	}
 
 	for i := range byteArrays {
-		var number float64
 		number, err := ByteArrayToFloat64(byteArrays[i])
 		if err != nil {
 			fmt.Println(err)

@@ -37,11 +37,17 @@ var c, err = NewHTTPClient(HTTPConfig{
 	//Username: username,
 	//Password: password,
 })
-
-const STRINGBYTELENGTH = 25
+var mc = memcache.New("localhost:11213")
 
 var TagKV = GetTagKV(c, MyDB)
 var Fields = GetFieldKeys(c, MyDB)
+
+const STRINGBYTELENGTH = 25
+const (
+	MyDB     = "NOAA_water_database"
+	username = "root"
+	password = "12345678"
+)
 
 const (
 	DefaultEncoding ContentEncoding = ""
@@ -790,12 +796,6 @@ func (r *ChunkedResponse) Close() error {
 	return r.duplex.Close()
 }
 
-const (
-	MyDB     = "NOAA_water_database"
-	username = "root"
-	password = "12345678"
-)
-
 func Set(queryString string, c Client, mc *memcache.Client) error {
 	query := NewQuery(queryString, MyDB, "ns")
 	resp, err := c.Query(query)
@@ -1254,12 +1254,12 @@ type TagKeyMap struct {
 	Tag map[string]TagValues
 }
 
-type MeasurementMap struct {
+type MeasurementTagMap struct {
 	Measurement map[string][]TagKeyMap
 }
 
 // 获取所有表的tag的key和value
-func GetTagKV(c Client, database string) MeasurementMap {
+func GetTagKV(c Client, database string) MeasurementTagMap {
 	// 构建查询语句
 	//query := fmt.Sprintf("SHOW FIELD KEYS on %s from %s", database, measurement)
 	queryK := fmt.Sprintf("SHOW tag KEYS on %s", database)
@@ -1289,7 +1289,7 @@ func GetTagKV(c Client, database string) MeasurementMap {
 		}
 	}
 
-	var measurementTagMap MeasurementMap
+	var measurementTagMap MeasurementTagMap
 	measurementTagMap.Measurement = make(map[string][]TagKeyMap)
 	for k, v := range tagMap {
 		for _, tagKey := range v {
@@ -1321,9 +1321,9 @@ func GetTagKV(c Client, database string) MeasurementMap {
 SemanticSegment 根据查询语句和数据库返回数据组成字段，用作存入cache的key
 */
 func SemanticSegment(queryString string, response *Response) string {
-	SM := GetSM(response)
-	//SPST := GetSPST(queryString)
-	SP := GetSP(queryString, response, TagKV)
+
+	SP, tagPredicates := GetSP(queryString, response, TagKV)
+	SM := GetSM(response, tagPredicates)
 	Interval := GetInterval(queryString)
 	SF, Aggr := GetSFSGWithDataType(queryString, response)
 
@@ -1335,10 +1335,11 @@ func SemanticSegment(queryString string, response *Response) string {
 }
 
 func SeperateSemanticSegment(queryString string, response *Response) []string {
-	SepSM := GetSeperateSM(response)
+
 	SF, SG := GetSFSGWithDataType(queryString, response)
-	//SPST := GetSPST(queryString)
-	SP := GetSP(queryString, response, TagKV)
+	SP, tagPredicates := GetSP(queryString, response, TagKV)
+	SepSM := GetSeperateSM(response, tagPredicates)
+
 	Interval := GetInterval(queryString)
 
 	var resultArr []string
@@ -1371,41 +1372,68 @@ func GetTagNameArr(resp *Response) []string {
 
 // GetSM get measurement's name and tags
 // func GetSM(queryString string, resp *Response) string {
-func GetSM(resp *Response) string {
+func GetSM(resp *Response, tagPredicates []string) string {
 	var result string
 	var tagArr []string
 
-	/* 从查询语句中提取出tag名称，刨除时间间隔，用tag名称规范map的输出，避免乱序 */
-	//parser := influxql.NewParser(strings.NewReader(queryString))
-	//stmt, _ := parser.ParseStatement()
-	//s := stmt.(*influxql.SelectStatement)
-	//_, tagArr = s.Dimensions.Normalize()
-
 	if ResponseIsEmpty(resp) {
-		return "{empty result}"
+		return "{empty}"
 	}
 
 	tagArr = GetTagNameArr(resp)
 
+	tagPre := make([]string, 0)
+	for i := range tagPredicates {
+		var idx int
+		if idx = strings.Index(tagPredicates[i], "!"); idx < 0 { // "!="
+			idx = strings.Index(tagPredicates[i], "=")
+		}
+		tagName := tagPredicates[i][:idx]
+		if !slices.Contains(tagArr, tagName) {
+			tagPre = append(tagPre, tagPredicates[i])
+		}
+	}
+
 	// 格式： {(name.tag_key=tag_value)...}
 	// 有查询结果 且 结果中有tag	当结果为空或某些使用聚合函数的情况都会输出 "empty tag"
 	//if len(resp.Results[0].Series) > 0 && len(resp.Results[0].Series[0].Tags) > 0 {
+	result += "{"
+	tmpTags := make([]string, 0)
 	if len(tagArr) > 0 {
-		result += "{"
 
 		for _, s := range resp.Results[0].Series {
-			result += "("
-			measurementName := s.Name
+			//result += "("
+			//measurementName := s.Name
+			//for _, tagName := range tagArr {
+			//	result += fmt.Sprintf("%s.%s=%s,", measurementName, tagName, s.Tags[tagName])
+			//}
+			//result = result[:len(result)-1]
+			//result += ")"
+			measurement := s.Name
+			tmpTags = nil
 			for _, tagName := range tagArr {
-				result += fmt.Sprintf("%s.%s=%s,", measurementName, tagName, s.Tags[tagName])
+				tmpTag := fmt.Sprintf("%s=%s", tagName, s.Tags[tagName])
+				tmpTags = append(tmpTags, tmpTag)
 			}
-			result = result[:len(result)-1]
-			result += ")"
+			tmpTags = append(tmpTags, tagPre...)
+			for i, tag := range tmpTags {
+				tmpTags[i] = fmt.Sprintf("%s.%s", measurement, tag)
+			}
+			sort.Strings(tmpTags)
+			tmpResult := strings.Join(tmpTags, ",")
+			result += fmt.Sprintf("(%s)", tmpResult)
 		}
 
+	} else if len(tagPre) > 0 {
+		measurement := resp.Results[0].Series[0].Name
+		for i, tag := range tagPre {
+			tagPre[i] = fmt.Sprintf("%s.%s", measurement, tag)
+		}
+		tmpResult := strings.Join(tagPre, ",")
+		result += fmt.Sprintf("(%s)", tmpResult)
 	} else {
 		measurementName := resp.Results[0].Series[0].Name
-		result += fmt.Sprintf("{(%s.empty_tag)}", measurementName)
+		result = fmt.Sprintf("{(%s.empty)}", measurementName)
 		return result
 	}
 
@@ -1416,32 +1444,62 @@ func GetSM(resp *Response) string {
 }
 
 /* 分别返回每张表的tag */
-func GetSeperateSM(resp *Response) []string {
+func GetSeperateSM(resp *Response, tagPredicates []string) []string {
 	var result []string
 	var tagArr []string
 
 	if ResponseIsEmpty(resp) {
-		return []string{"{empty result}"}
+		return []string{"{empty}"}
 	}
 
+	measurement := resp.Results[0].Series[0].Name
 	tagArr = GetTagNameArr(resp)
 
-	if len(tagArr) == 0 {
-		tmp := fmt.Sprintf("{(%s.empty_tag)}", resp.Results[0].Series[0].Name)
-		result = append(result, tmp)
-		return result
-	} else {
+	tagPre := make([]string, 0)
+	for i := range tagPredicates {
+		var idx int
+		if idx = strings.Index(tagPredicates[i], "!"); idx < 0 { // "!="
+			idx = strings.Index(tagPredicates[i], "=")
+		}
+		tagName := tagPredicates[i][:idx]
+		if !slices.Contains(tagArr, tagName) {
+			tagPre = append(tagPre, tagPredicates[i])
+		}
+	}
+
+	tmpTags := make([]string, 0)
+	if len(tagArr) > 0 {
 		for _, s := range resp.Results[0].Series {
 			var tmp string
+			tmpTags = nil
+			for _, tagKey := range tagArr {
+				tag := fmt.Sprintf("%s=%s", tagKey, s.Tags[tagKey])
+				tmpTags = append(tmpTags, tag)
+			}
+			tmpTags = append(tmpTags, tagPre...)
+			sort.Strings(tmpTags)
+
 			tmp += "{("
-			measurementName := s.Name
-			for _, t := range tagArr {
-				tmp += fmt.Sprintf("%s.%s=%s,", measurementName, t, s.Tags[t])
+			for _, t := range tmpTags {
+				tmp += fmt.Sprintf("%s.%s,", measurement, t)
 			}
 			tmp = tmp[:len(tmp)-1]
 			tmp += ")}"
 			result = append(result, tmp)
 		}
+	} else if len(tagPre) > 0 {
+		var tmp string
+		tmp += "{("
+		for _, t := range tagPre {
+			tmp += fmt.Sprintf("%s.%s,", measurement, t)
+		}
+		tmp = tmp[:len(tmp)-1]
+		tmp += ")}"
+		result = append(result, tmp)
+	} else {
+		tmp := fmt.Sprintf("{(%s.empty)}", measurement)
+		result = append(result, tmp)
+		return result
 	}
 	return result
 }
@@ -1644,12 +1702,12 @@ func GetSFSG(query string) (string, string) {
 }
 
 /* 只获取谓词，不要时间范围 */
-func GetSP(query string, resp *Response, tagMap MeasurementMap) string {
+func GetSP(query string, resp *Response, tagMap MeasurementTagMap) (string, []string) {
 	//regStr := `(?i).+WHERE(.+)GROUP BY.`
 	regStr := `(?i).+WHERE(.+)`
 	conditionExpr := regexp.MustCompile(regStr)
 	if ok, _ := regexp.MatchString(regStr, query); !ok {
-		return "{empty}"
+		return "{empty}", nil
 	}
 	condExprMatch := conditionExpr.FindStringSubmatch(query) // 获取 WHERE 后面的所有表达式，包括谓词和时间范围
 	parseExpr := condExprMatch[1]
@@ -1659,6 +1717,7 @@ func GetSP(query string, resp *Response, tagMap MeasurementMap) string {
 	expr, _ := influxql.ParseExpr(parseExpr)
 	cond, _, _ := influxql.ConditionExpr(expr, &valuer) //提取出谓词
 
+	tagConds := make([]string, 0)
 	var result string
 	if cond == nil { //没有谓词
 		result += fmt.Sprintf("{empty}")
@@ -1671,7 +1730,7 @@ func GetSP(query string, resp *Response, tagMap MeasurementMap) string {
 		if !ResponseIsEmpty(resp) {
 			measurement = resp.Results[0].Series[0].Name
 		} else {
-			return "{empty}"
+			return "{empty}", nil
 		}
 
 		tags, predicates, datatypes := PreOrderTraverseBinaryExpr(binaryExpr, &tag, &conds, &datatype)
@@ -1694,6 +1753,9 @@ func GetSP(query string, resp *Response, tagMap MeasurementMap) string {
 
 			if !isTag {
 				result += fmt.Sprintf("(%s[%s])", p, (*datatypes)[i])
+			} else {
+				p = strings.ReplaceAll(p, "'", "")
+				tagConds = append(tagConds, p)
 			}
 		}
 		result += "}"
@@ -1702,7 +1764,9 @@ func GetSP(query string, resp *Response, tagMap MeasurementMap) string {
 	if len(result) == 2 {
 		result = "{empty}"
 	}
-	return result
+
+	sort.Strings(tagConds)
+	return result, tagConds
 }
 
 /*
