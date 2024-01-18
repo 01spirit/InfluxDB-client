@@ -33,6 +33,38 @@ mc := memcache.New("localhost:11213")
 
 
 
+### 常量和全局变量修改
+
+在 /v2/client.go 的开头 line-36
+
+```
+// 连接数据库
+var c, err = NewHTTPClient(HTTPConfig{
+    Addr: "http://10.170.48.244:8086",
+    //Username: username,
+    //Password: password,
+})
+
+// 连接cache
+var mc = memcache.New("localhost:11213")
+
+// 数据库中所有表的tag和field
+var TagKV = GetTagKV(c, MyDB)
+var Fields = GetFieldKeys(c, MyDB)
+
+// 结果转换成字节数组时string类型占用字节数
+const STRINGBYTELENGTH = 25
+
+// 数据库名称
+const (
+    MyDB     = "NOAA_water_database"
+    username = "root"
+    password = "12345678"
+)
+```
+
+
+
 ### 连接数据库：
 
 ```
@@ -80,7 +112,17 @@ mc := memcache.New("localhost:11213")
 
 
 
-### cache 的 Set() 和 Get()
+### client的Set()
+
+由memcache的Set()封装而来，传入查询语句和创建的连接，由Set()进行查询并把结果处理成字节数组存入cache	client.go line-806
+
+```
+func Set(queryString string, c Client, mc *memcache.Client) error 
+```
+
+
+
+### memcache 的 Set() 和 Get()
 
 ```
 semanticSegment := SemanticSegment(queryString, resp)	//用作set key的语义段
@@ -139,7 +181,7 @@ _, err = fmt.Fprintf(rw, "%s %s %d %d %d\r\n", //用item的基本信息构建命
 
 ​							statement_id	int	（从 0 开始计数）
 
-​							Series[]	[	-	-	->	series[0]	(比如用 GROUP BY 时会有多个Series，根据 tags 值的数量)
+​							Series[]	[	-	-	->	series[0]	(查询结果的表，比如用 GROUP BY 时会有多个Series，根据 tags 值的数量)
 
 ​													name			string
 
@@ -236,7 +278,7 @@ ss := SemanticSegment(queryString, response)
 结果：测试代码	 v2/client_test.go	line-1678
 
 ```
-"{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)(h2o_quality.location=coyote_creek,h2o_quality.randtag=3)(h2o_quality.location=santa_monica,h2o_quality.randtag=2)(h2o_quality.location=santa_monica,h2o_quality.randtag=3)}#{time[int64],index[int64]}#{(randtag!='1'[string])(index>=50[int64])}#{max,12m}"
+"{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)(h2o_quality.location=coyote_creek,h2o_quality.randtag=3)(h2o_quality.location=santa_monica,h2o_quality.randtag=2)(h2o_quality.location=santa_monica,h2o_quality.randtag=3)}#{time[int64],index[int64]}#{(index>=50[int64])}#{max,12m}"
 ```
 
 
@@ -250,7 +292,7 @@ func Merge(precision string, resps ...*Response) []*Response
 
 precision：允许合并的时间误差精度	"h"/"ns"/"us" 等
 
-resps ... : 要合并的查询结果列表
+resps ... : 要合并的多个查询结果，可以整合成一个数组，也可以直接挨个传入
 
 返回合并后的结果数组
 

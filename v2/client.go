@@ -32,17 +32,24 @@ import (
 
 type ContentEncoding string
 
+// 连接数据库
 var c, err = NewHTTPClient(HTTPConfig{
 	Addr: "http://10.170.48.244:8086",
 	//Username: username,
 	//Password: password,
 })
+
+// 连接cache
 var mc = memcache.New("localhost:11213")
 
+// 数据库中所有表的tag和field
 var TagKV = GetTagKV(c, MyDB)
 var Fields = GetFieldKeys(c, MyDB)
 
+// 结果转换成字节数组时string类型占用字节数
 const STRINGBYTELENGTH = 25
+
+// 数据库名称
 const (
 	MyDB     = "NOAA_water_database"
 	username = "root"
