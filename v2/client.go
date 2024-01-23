@@ -51,10 +51,40 @@ const STRINGBYTELENGTH = 25
 
 // 数据库名称
 const (
-	MyDB     = "NOAA_water_database"
+	//MyDB     = "NOAA_water_database"
+	MyDB     = "test"
 	username = "root"
 	password = "12345678"
 )
+
+// DB:	test	measurement:	cpu
+/*
+* 	field
+ */
+//usage_guest
+//usage_guest_nice
+//usage_idle
+//usage_iowait
+//usage_irq
+//usage_nice
+//usage_softirq
+//usage_steal
+//usage_system
+//usage_user
+
+/*
+* 	tag
+ */
+//arch [x64 x86]
+//datacenter [eu-central-1a us-west-2b us-west-2c]
+//hostname [host_0 host_1 host_2 host_3]
+//os [Ubuntu15.10 Ubuntu16.04LTS Ubuntu16.10]
+//rack [4 41 61 84]
+//region [eu-central-1 us-west-2]
+//service [18 2 4 6]
+//service_environment [production staging]
+//service_version [0 1]
+//team [CHI LON NYC]
 
 const (
 	DefaultEncoding ContentEncoding = ""
@@ -1329,6 +1359,9 @@ SemanticSegment 根据查询语句和数据库返回数据组成字段，用作�
 */
 func SemanticSegment(queryString string, response *Response) string {
 
+	if ResponseIsEmpty(response) {
+		return "{empty response}"
+	}
 	SP, tagPredicates := GetSP(queryString, response, TagKV)
 	SM := GetSM(response, tagPredicates)
 	Interval := GetInterval(queryString)
