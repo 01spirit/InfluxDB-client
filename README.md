@@ -1,5 +1,7 @@
 # 说明
 
+文件中的查询语句样例的测试代码在 TestSemanticSegmentInstance() 中
+
 客户端分为两部分：
 
 * memcache/memcache.go : 包含修改的 Set() 、Get() , 用于和cache系统交互，存入和读取字节数组

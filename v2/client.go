@@ -51,7 +51,7 @@ const STRINGBYTELENGTH = 25
 
 // 数据库名称
 const (
-	//MyDB     = "NOAA_water_database"
+	//MyDB = "NOAA_water_database"
 	MyDB     = "test"
 	username = "root"
 	password = "12345678"
@@ -1358,7 +1358,6 @@ func GetTagKV(c Client, database string) MeasurementTagMap {
 SemanticSegment 根据查询语句和数据库返回数据组成字段，用作存入cache的key
 */
 func SemanticSegment(queryString string, response *Response) string {
-
 	if ResponseIsEmpty(response) {
 		return "{empty response}"
 	}
@@ -1587,34 +1586,84 @@ func GetSFSGWithDataType(queryString string, resp *Response) (string, string) {
 	}
 
 	var aggr string
-	if strings.IndexAny(FGstr, ")") > 0 {
-		/* 获取聚合函数 */
-		index := strings.IndexAny(FGstr, "(")
-		aggr = FGstr[:index]
+	singleField := strings.Split(FGstr, ",")
+	if strings.IndexAny(singleField[0], "(") > 0 && strings.IndexAny(singleField[0], "*") < 0 { // 有一或多个聚合函数, 没有通配符 '*'
+		/* 获取聚合函数名 */
+		index := strings.IndexAny(singleField[0], "(")
+		aggr = singleField[0][:index]
 		aggr = strings.ToLower(aggr)
 
 		/* 从查询语句获取field(实际的列名) */
 		fields = append(fields, "time")
 		var startIdx int
 		var endIdx int
-		for idx, ch := range FGstr { // 括号中间的部分是fields，默认没有双引号，不作处理
-			if ch == '(' {
-				startIdx = idx + 1
+		for i := range singleField {
+			for idx, ch := range singleField[i] { // 括号中间的部分是fields，默认没有双引号，不作处理
+				if ch == '(' {
+					startIdx = idx + 1
+				}
+				if ch == ')' {
+					endIdx = idx
+				}
 			}
-			if ch == ')' {
-				endIdx = idx
+			tmpStr := singleField[i][startIdx:endIdx]
+			tmpArr := strings.Split(tmpStr, ",")
+			fields = append(fields, tmpArr...)
+		}
+
+	} else if strings.IndexAny(singleField[0], "(") > 0 && strings.IndexAny(singleField[0], "*") >= 0 { // 有聚合函数，有通配符 '*'
+		/* 获取聚合函数名 */
+		index := strings.IndexAny(singleField[0], "(")
+		aggr = singleField[0][:index]
+		aggr = strings.ToLower(aggr)
+
+		/* 从Response获取列名 */
+		for _, c := range resp.Results[0].Series[0].Columns {
+			startIdx := strings.IndexAny(c, "_")
+			if startIdx > 0 {
+				tmpStr := c[startIdx+1:]
+				fields = append(fields, tmpStr)
+			} else {
+				fields = append(fields, c)
 			}
 		}
-		tmpStr := FGstr[startIdx:endIdx]
-		tmpArr := strings.Split(tmpStr, ",")
-		fields = append(fields, tmpArr...)
-	} else {
+
+	} else { // 没有聚合函数，通配符无所谓
 		aggr = "empty"
 		/* 从Response获取列名 */
 		for _, c := range resp.Results[0].Series[0].Columns {
 			fields = append(fields, c)
 		}
 	}
+
+	//if strings.IndexAny(FGstr, ")") > 0 {
+	//	/* 获取聚合函数 */
+	//	index := strings.IndexAny(FGstr, "(")
+	//	aggr = FGstr[:index]
+	//	aggr = strings.ToLower(aggr)
+	//
+	//	/* 从查询语句获取field(实际的列名) */
+	//	fields = append(fields, "time")
+	//	var startIdx int
+	//	var endIdx int
+	//	for idx, ch := range FGstr { // 括号中间的部分是fields，默认没有双引号，不作处理
+	//		if ch == '(' {
+	//			startIdx = idx + 1
+	//		}
+	//		if ch == ')' {
+	//			endIdx = idx
+	//		}
+	//	}
+	//	tmpStr := FGstr[startIdx:endIdx]
+	//	tmpArr := strings.Split(tmpStr, ",")
+	//	fields = append(fields, tmpArr...)
+	//} else {
+	//	aggr = "empty"
+	//	/* 从Response获取列名 */
+	//	for _, c := range resp.Results[0].Series[0].Columns {
+	//		fields = append(fields, c)
+	//	}
+	//}
 
 	/* 从查寻结果中获取每一列的数据类型 */
 	dataTypes := DataTypeArrayFromResponse(resp)

@@ -1698,6 +1698,115 @@ func TestGetSPST(t *testing.T) {
 
 }
 
+func TestSemanticSegmentInstance(t *testing.T) {
+	tests := []struct {
+		name        string
+		queryString string
+		expected    string
+	}{
+		{
+			name:        "t1-1",
+			queryString: "select usage_guest from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:00:20Z' and hostname='host_0'",
+			expected:    "{(cpu.hostname=host_0)}#{time[int64],usage_guest[float64]}#{empty}#{empty,empty}",
+		},
+		{
+			name:        "t1-2",
+			queryString: "select max(usage_guest) from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:00:20Z' and hostname='host_0'",
+			expected:    "{(cpu.hostname=host_0)}#{time[int64],usage_guest[float64]}#{empty}#{max,empty}",
+		},
+		{
+			name:        "t1-3",
+			queryString: "select mean(usage_guest) from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:00:20Z' and hostname='host_0'",
+			expected:    "{(cpu.hostname=host_0)}#{time[int64],usage_guest[float64]}#{empty}#{mean,empty}",
+		},
+		{
+			name:        "t2-1",
+			queryString: "select usage_guest,usage_nice,usage_guest_nice from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:00:20Z' and hostname='host_0'",
+			expected:    "{(cpu.hostname=host_0)}#{time[int64],usage_guest[float64],usage_nice[float64],usage_guest_nice[float64]}#{empty}#{empty,empty}",
+		},
+		{
+			name:        "t2-2",
+			queryString: "select max(usage_guest),max(usage_nice),max(usage_guest_nice) from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:00:20Z' and hostname='host_0'",
+			expected:    "{(cpu.hostname=host_0)}#{time[int64],usage_guest[float64],usage_nice[float64],usage_guest_nice[float64]}#{empty}#{max,empty}",
+		},
+		{
+			name:        "t2-3",
+			queryString: "select mean(usage_guest),mean(usage_nice),mean(usage_guest_nice) from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:00:20Z' and hostname='host_0'",
+			expected:    "{(cpu.hostname=host_0)}#{time[int64],usage_guest[float64],usage_nice[float64],usage_guest_nice[float64]}#{empty}#{mean,empty}",
+		},
+		{
+			name:        "t3-1",
+			queryString: "select usage_system,usage_user,usage_guest from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:00:20Z' and hostname='host_0'",
+			expected:    "{(cpu.hostname=host_0)}#{time[int64],usage_system[float64],usage_user[float64],usage_guest[float64]}#{empty}#{empty,empty}",
+		},
+		{
+			name:        "t3-2",
+			queryString: "select max(usage_system),max(usage_user),max(usage_guest) from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:00:20Z' and hostname='host_0'",
+			expected:    "{(cpu.hostname=host_0)}#{time[int64],usage_system[float64],usage_user[float64],usage_guest[float64]}#{empty}#{max,empty}",
+		},
+		{
+			name:        "t3-3",
+			queryString: "select mean(usage_system),mean(usage_user),mean(usage_guest) from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:00:20Z' and hostname='host_0'",
+			expected:    "{(cpu.hostname=host_0)}#{time[int64],usage_system[float64],usage_user[float64],usage_guest[float64]}#{empty}#{mean,empty}",
+		},
+		{
+			name:        "t4-1",
+			queryString: "select usage_system,usage_user,usage_guest,usage_nice,usage_guest_nice from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:00:20Z' and hostname='host_0'",
+			expected:    "{(cpu.hostname=host_0)}#{time[int64],usage_system[float64],usage_user[float64],usage_guest[float64],usage_nice[float64],usage_guest_nice[float64]}#{empty}#{empty,empty}",
+		},
+		{
+			name:        "t4-2",
+			queryString: "select max(usage_system),max(usage_user),max(usage_guest),max(usage_nice),max(usage_guest_nice) from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:00:20Z' and hostname='host_0'",
+			expected:    "{(cpu.hostname=host_0)}#{time[int64],usage_system[float64],usage_user[float64],usage_guest[float64],usage_nice[float64],usage_guest_nice[float64]}#{empty}#{max,empty}",
+		},
+		{
+			name:        "t4-3",
+			queryString: "select mean(usage_system),mean(usage_user),mean(usage_guest),mean(usage_nice),mean(usage_guest_nice) from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:00:20Z' and hostname='host_0'",
+			expected:    "{(cpu.hostname=host_0)}#{time[int64],usage_system[float64],usage_user[float64],usage_guest[float64],usage_nice[float64],usage_guest_nice[float64]}#{empty}#{mean,empty}",
+		},
+		{
+			name:        "t5-1",
+			queryString: "select * from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:00:20Z' and hostname='host_0'",
+			expected:    "{(cpu.hostname=host_0)}#{time[int64],arch[string],datacenter[string],hostname[string],os[string],rack[string],region[string],service[string],service_environment[string],service_version[string],team[string],usage_guest[float64],usage_guest_nice[float64],usage_idle[float64],usage_iowait[float64],usage_irq[float64],usage_nice[float64],usage_softirq[float64],usage_steal[float64],usage_system[float64],usage_user[float64]}#{empty}#{empty,empty}",
+		},
+		{
+			name:        "t5-2",
+			queryString: "select max(*) from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:00:20Z' and hostname='host_0'",
+			expected:    "{(cpu.hostname=host_0)}#{time[int64],usage_guest[float64],usage_guest_nice[float64],usage_idle[float64],usage_iowait[float64],usage_irq[float64],usage_nice[float64],usage_softirq[float64],usage_steal[float64],usage_system[float64],usage_user[float64]}#{empty}#{max,empty}",
+		},
+		{
+			name:        "t5-3",
+			queryString: "select mean(*) from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:00:20Z' and hostname='host_0'",
+			expected:    "{(cpu.hostname=host_0)}#{time[int64],usage_guest[float64],usage_guest_nice[float64],usage_idle[float64],usage_iowait[float64],usage_irq[float64],usage_nice[float64],usage_softirq[float64],usage_steal[float64],usage_system[float64],usage_user[float64]}#{empty}#{mean,empty}",
+		},
+		{
+			name:        "t6-1",
+			queryString: "select usage_guest from test..cpu where time >= '2022-01-01T09:00:00Z' and time < '2022-01-01T10:00:00Z' and hostname='host_0' and usage_guest > 99.0",
+			expected:    "{(cpu.hostname=host_0)}#{time[int64],usage_guest[float64]}#{(usage_guest>99.000[float64])}#{empty,empty}",
+		},
+		{
+			name:        "t7-1",
+			queryString: "select usage_guest from test..cpu where time >= '2022-01-01T09:15:00Z' and time < '2022-01-01T09:20:00Z' and usage_guest > 99.0 group by hostname",
+			expected:    "{(cpu.hostname=host_0)(cpu.hostname=host_1)(cpu.hostname=host_3)}#{time[int64],usage_guest[float64]}#{(usage_guest>99.000[float64])}#{empty,empty}",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			query := NewQuery(tt.queryString, MyDB, "ns")
+			resp, err := c.Query(query)
+			if err != nil {
+				fmt.Println(err)
+			}
+			ss := SemanticSegment(tt.queryString, resp)
+			//fmt.Println(ss)
+			if strings.Compare(ss, tt.expected) != 0 {
+				t.Errorf("samantic segment:\t%s", ss)
+				t.Errorf("expected:\t%s", tt.expected)
+			}
+		})
+	}
+}
+
 func TestSemanticSegmentDBTest(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -1705,20 +1814,15 @@ func TestSemanticSegmentDBTest(t *testing.T) {
 		expected    string
 	}{
 		{
-			name:        "t1",
-			queryString: "select usage_guest from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:00:20Z' and hostname='host_0'",
-			expected:    "{(cpu.hostname=host_0)}#{time[int64],usage_guest[float64]}#{empty}#{empty,empty}",
-		},
-		{
 			name:        "1",
 			queryString: "SELECT *::field FROM cpu limit 10",
 			expected:    "{(cpu.empty)}#{time[int64],usage_guest[float64],usage_guest_nice[float64],usage_idle[float64],usage_iowait[float64],usage_irq[float64],usage_nice[float64],usage_softirq[float64],usage_steal[float64],usage_system[float64],usage_user[float64]}#{empty}#{empty,empty}",
 		},
-		{
-			name:        "2",
-			queryString: "SELECT *::field FROM cpu limit 10000000", // 中等规模数据集有一千二百五十万条数据	一万条数据 0.9s 	十万条数据 8.5s	一百万条数据 55.9s	一千万条数据 356.7s
-			expected:    "{(cpu.empty)}#{time[int64],usage_guest[float64],usage_guest_nice[float64],usage_idle[float64],usage_iowait[float64],usage_irq[float64],usage_nice[float64],usage_softirq[float64],usage_steal[float64],usage_system[float64],usage_user[float64]}#{empty}#{empty,empty}",
-		},
+		//{
+		//	name:        "2",
+		//	queryString: "SELECT *::field FROM cpu limit 10000000", // 中等规模数据集有一千二百五十万条数据	一万条数据 0.9s 	十万条数据 8.5s	一百万条数据 55.9s	一千万条数据 356.7s
+		//	expected:    "{(cpu.empty)}#{time[int64],usage_guest[float64],usage_guest_nice[float64],usage_idle[float64],usage_iowait[float64],usage_irq[float64],usage_nice[float64],usage_softirq[float64],usage_steal[float64],usage_system[float64],usage_user[float64]}#{empty}#{empty,empty}",
+		//},
 		{
 			name:        "3",
 			queryString: "SELECT usage_steal,usage_idle,usage_guest,usage_user FROM cpu GROUP BY service,team limit 10",
