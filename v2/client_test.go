@@ -1705,6 +1705,11 @@ func TestSemanticSegmentDBTest(t *testing.T) {
 		expected    string
 	}{
 		{
+			name:        "t1",
+			queryString: "select usage_guest from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:00:20Z' and hostname='host_0'",
+			expected:    "{(cpu.hostname=host_0)}#{time[int64],usage_guest[float64]}#{empty}#{empty,empty}",
+		},
+		{
 			name:        "1",
 			queryString: "SELECT *::field FROM cpu limit 10",
 			expected:    "{(cpu.empty)}#{time[int64],usage_guest[float64],usage_guest_nice[float64],usage_idle[float64],usage_iowait[float64],usage_irq[float64],usage_nice[float64],usage_softirq[float64],usage_steal[float64],usage_system[float64],usage_user[float64]}#{empty}#{empty,empty}",
