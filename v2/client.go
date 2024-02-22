@@ -34,7 +34,8 @@ type ContentEncoding string
 
 // 连接数据库
 var c, err = NewHTTPClient(HTTPConfig{
-	Addr: "http://10.170.48.244:8086",
+	//Addr: "http://10.170.48.244:8086",
+	Addr: "http://localhost:8086",
 	//Username: username,
 	//Password: password,
 })
@@ -51,8 +52,8 @@ const STRINGBYTELENGTH = 25
 
 // 数据库名称
 const (
-	//MyDB = "NOAA_water_database"
-	MyDB     = "test"
+	MyDB = "NOAA_water_database"
+	//MyDB     = "test"
 	username = "root"
 	password = "12345678"
 )
@@ -1671,6 +1672,8 @@ func GetSFSGWithDataType(queryString string, resp *Response) (string, string) {
 		fields[i] = fmt.Sprintf("%s[%s]", fields[i], dataTypes[i])
 	}
 
+	//去掉第一列中的 time[int64]
+	fields = fields[1:]
 	var fieldsStr string
 	fieldsStr = strings.Join(fields, ",")
 
@@ -1766,7 +1769,7 @@ func GetSFSG(query string) (string, string) {
 		aggr = strings.Join(aggrs, ",") //获取聚合函数
 
 		/* get fields */
-		flds += "time,"
+		//flds += "time,"
 		var start_idx int
 		var end_idx int
 		for idx, ch := range FGstr { // 括号中间的部分是fields，默认没有双引号，不作处理
@@ -1784,7 +1787,7 @@ func GetSFSG(query string) (string, string) {
 		parser := influxql.NewParser(strings.NewReader(query))
 		stmt, _ := parser.ParseStatement()
 		s := stmt.(*influxql.SelectStatement)
-		flds = strings.Join(s.ColumnNames(), ",")
+		flds = strings.Join(s.ColumnNames()[1:], ",")
 	}
 
 	return flds, aggr

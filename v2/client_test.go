@@ -1275,32 +1275,32 @@ func TestGetSFSG(t *testing.T) {
 		{
 			name:        "one field without aggr",
 			queryString: "SELECT water_level FROM h2o_feet WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z'",
-			expected:    []string{"time,water_level", "empty"},
+			expected:    []string{"water_level", "empty"},
 		},
 		{
 			name:        "two fields without aggr",
 			queryString: "SELECT water_level,location FROM h2o_feet WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z'",
-			expected:    []string{"time,water_level,location", "empty"},
+			expected:    []string{"water_level,location", "empty"},
 		},
 		{
 			name:        "three fields without aggr",
 			queryString: "SELECT index,location,randtag FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z'",
-			expected:    []string{"time,index,location,randtag", "empty"},
+			expected:    []string{"index,location,randtag", "empty"},
 		},
 		{
 			name:        "one field with aggr count",
 			queryString: "SELECT COUNT(water_level) FROM h2o_feet WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY time(12m)",
-			expected:    []string{"time,water_level", "count"},
+			expected:    []string{"water_level", "count"},
 		},
 		{
 			name:        "one field with aggr max",
 			queryString: "SELECT MAX(water_level) FROM h2o_feet WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY time(12m)",
-			expected:    []string{"time,water_level", "max"},
+			expected:    []string{"water_level", "max"},
 		},
 		{
 			name:        "one field with aggr mean",
 			queryString: "SELECT MEAN(water_level) FROM h2o_feet WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY time(12m)",
-			expected:    []string{"time,water_level", "mean"},
+			expected:    []string{"water_level", "mean"},
 		},
 	}
 
@@ -1329,37 +1329,37 @@ func TestGetSFSGWithDataType(t *testing.T) {
 		{
 			name:        "one field without aggr",
 			queryString: "SELECT water_level FROM h2o_feet WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z'",
-			expected:    []string{"time[int64],water_level[float64]", "empty"},
+			expected:    []string{"water_level[float64]", "empty"},
 		},
 		{
 			name:        "two fields without aggr",
 			queryString: "SELECT water_level,location FROM h2o_feet WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z'",
-			expected:    []string{"time[int64],water_level[float64],location[string]", "empty"},
+			expected:    []string{"water_level[float64],location[string]", "empty"},
 		},
 		{
 			name:        "three fields without aggr",
 			queryString: "SELECT index,location,randtag FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z'",
-			expected:    []string{"time[int64],index[int64],location[string],randtag[string]", "empty"},
+			expected:    []string{"index[int64],location[string],randtag[string]", "empty"},
 		},
 		{
 			name:        "three fields without aggr",
 			queryString: "SELECT location,index,randtag,index FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z'",
-			expected:    []string{"time[int64],location[string],index[int64],randtag[string],index_1[int64]", "empty"},
+			expected:    []string{"location[string],index[int64],randtag[string],index_1[int64]", "empty"},
 		},
 		{
 			name:        "one field with aggr count",
 			queryString: "SELECT COUNT(water_level) FROM h2o_feet WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY time(12m)",
-			expected:    []string{"time[int64],water_level[int64]", "count"},
+			expected:    []string{"water_level[int64]", "count"},
 		},
 		{
 			name:        "one field with aggr max",
 			queryString: "SELECT MAX(water_level) FROM h2o_feet WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY time(12m)",
-			expected:    []string{"time[int64],water_level[float64]", "max"},
+			expected:    []string{"water_level[float64]", "max"},
 		},
 		{
 			name:        "one field with aggr mean",
 			queryString: "SELECT MEAN(water_level) FROM h2o_feet WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY time(12m)",
-			expected:    []string{"time[int64],water_level[float64]", "mean"},
+			expected:    []string{"water_level[float64]", "mean"},
 		},
 	}
 
@@ -1707,87 +1707,87 @@ func TestSemanticSegmentInstance(t *testing.T) {
 		{
 			name:        "t1-1",
 			queryString: "select usage_guest from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:00:20Z' and hostname='host_0'",
-			expected:    "{(cpu.hostname=host_0)}#{time[int64],usage_guest[float64]}#{empty}#{empty,empty}",
+			expected:    "{(cpu.hostname=host_0)}#{usage_guest[float64]}#{empty}#{empty,empty}",
 		},
 		{
 			name:        "t1-2",
 			queryString: "select max(usage_guest) from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:00:20Z' and hostname='host_0'",
-			expected:    "{(cpu.hostname=host_0)}#{time[int64],usage_guest[float64]}#{empty}#{max,empty}",
+			expected:    "{(cpu.hostname=host_0)}#{usage_guest[float64]}#{empty}#{max,empty}",
 		},
 		{
 			name:        "t1-3",
 			queryString: "select mean(usage_guest) from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:00:20Z' and hostname='host_0'",
-			expected:    "{(cpu.hostname=host_0)}#{time[int64],usage_guest[float64]}#{empty}#{mean,empty}",
+			expected:    "{(cpu.hostname=host_0)}#{usage_guest[float64]}#{empty}#{mean,empty}",
 		},
 		{
 			name:        "t2-1",
 			queryString: "select usage_guest,usage_nice,usage_guest_nice from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:00:20Z' and hostname='host_0'",
-			expected:    "{(cpu.hostname=host_0)}#{time[int64],usage_guest[float64],usage_nice[float64],usage_guest_nice[float64]}#{empty}#{empty,empty}",
+			expected:    "{(cpu.hostname=host_0)}#{usage_guest[float64],usage_nice[float64],usage_guest_nice[float64]}#{empty}#{empty,empty}",
 		},
 		{
 			name:        "t2-2",
 			queryString: "select max(usage_guest),max(usage_nice),max(usage_guest_nice) from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:00:20Z' and hostname='host_0'",
-			expected:    "{(cpu.hostname=host_0)}#{time[int64],usage_guest[float64],usage_nice[float64],usage_guest_nice[float64]}#{empty}#{max,empty}",
+			expected:    "{(cpu.hostname=host_0)}#{usage_guest[float64],usage_nice[float64],usage_guest_nice[float64]}#{empty}#{max,empty}",
 		},
 		{
 			name:        "t2-3",
 			queryString: "select mean(usage_guest),mean(usage_nice),mean(usage_guest_nice) from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:00:20Z' and hostname='host_0'",
-			expected:    "{(cpu.hostname=host_0)}#{time[int64],usage_guest[float64],usage_nice[float64],usage_guest_nice[float64]}#{empty}#{mean,empty}",
+			expected:    "{(cpu.hostname=host_0)}#{usage_guest[float64],usage_nice[float64],usage_guest_nice[float64]}#{empty}#{mean,empty}",
 		},
 		{
 			name:        "t3-1",
 			queryString: "select usage_system,usage_user,usage_guest from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:00:20Z' and hostname='host_0'",
-			expected:    "{(cpu.hostname=host_0)}#{time[int64],usage_system[float64],usage_user[float64],usage_guest[float64]}#{empty}#{empty,empty}",
+			expected:    "{(cpu.hostname=host_0)}#{usage_system[float64],usage_user[float64],usage_guest[float64]}#{empty}#{empty,empty}",
 		},
 		{
 			name:        "t3-2",
 			queryString: "select max(usage_system),max(usage_user),max(usage_guest) from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:00:20Z' and hostname='host_0'",
-			expected:    "{(cpu.hostname=host_0)}#{time[int64],usage_system[float64],usage_user[float64],usage_guest[float64]}#{empty}#{max,empty}",
+			expected:    "{(cpu.hostname=host_0)}#{usage_system[float64],usage_user[float64],usage_guest[float64]}#{empty}#{max,empty}",
 		},
 		{
 			name:        "t3-3",
 			queryString: "select mean(usage_system),mean(usage_user),mean(usage_guest) from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:00:20Z' and hostname='host_0'",
-			expected:    "{(cpu.hostname=host_0)}#{time[int64],usage_system[float64],usage_user[float64],usage_guest[float64]}#{empty}#{mean,empty}",
+			expected:    "{(cpu.hostname=host_0)}#{usage_system[float64],usage_user[float64],usage_guest[float64]}#{empty}#{mean,empty}",
 		},
 		{
 			name:        "t4-1",
 			queryString: "select usage_system,usage_user,usage_guest,usage_nice,usage_guest_nice from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:00:20Z' and hostname='host_0'",
-			expected:    "{(cpu.hostname=host_0)}#{time[int64],usage_system[float64],usage_user[float64],usage_guest[float64],usage_nice[float64],usage_guest_nice[float64]}#{empty}#{empty,empty}",
+			expected:    "{(cpu.hostname=host_0)}#{usage_system[float64],usage_user[float64],usage_guest[float64],usage_nice[float64],usage_guest_nice[float64]}#{empty}#{empty,empty}",
 		},
 		{
 			name:        "t4-2",
 			queryString: "select max(usage_system),max(usage_user),max(usage_guest),max(usage_nice),max(usage_guest_nice) from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:00:20Z' and hostname='host_0'",
-			expected:    "{(cpu.hostname=host_0)}#{time[int64],usage_system[float64],usage_user[float64],usage_guest[float64],usage_nice[float64],usage_guest_nice[float64]}#{empty}#{max,empty}",
+			expected:    "{(cpu.hostname=host_0)}#{usage_system[float64],usage_user[float64],usage_guest[float64],usage_nice[float64],usage_guest_nice[float64]}#{empty}#{max,empty}",
 		},
 		{
 			name:        "t4-3",
 			queryString: "select mean(usage_system),mean(usage_user),mean(usage_guest),mean(usage_nice),mean(usage_guest_nice) from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:00:20Z' and hostname='host_0'",
-			expected:    "{(cpu.hostname=host_0)}#{time[int64],usage_system[float64],usage_user[float64],usage_guest[float64],usage_nice[float64],usage_guest_nice[float64]}#{empty}#{mean,empty}",
+			expected:    "{(cpu.hostname=host_0)}#{usage_system[float64],usage_user[float64],usage_guest[float64],usage_nice[float64],usage_guest_nice[float64]}#{empty}#{mean,empty}",
 		},
 		{
 			name:        "t5-1",
 			queryString: "select * from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:00:20Z' and hostname='host_0'",
-			expected:    "{(cpu.hostname=host_0)}#{time[int64],arch[string],datacenter[string],hostname[string],os[string],rack[string],region[string],service[string],service_environment[string],service_version[string],team[string],usage_guest[float64],usage_guest_nice[float64],usage_idle[float64],usage_iowait[float64],usage_irq[float64],usage_nice[float64],usage_softirq[float64],usage_steal[float64],usage_system[float64],usage_user[float64]}#{empty}#{empty,empty}",
+			expected:    "{(cpu.hostname=host_0)}#{arch[string],datacenter[string],hostname[string],os[string],rack[string],region[string],service[string],service_environment[string],service_version[string],team[string],usage_guest[float64],usage_guest_nice[float64],usage_idle[float64],usage_iowait[float64],usage_irq[float64],usage_nice[float64],usage_softirq[float64],usage_steal[float64],usage_system[float64],usage_user[float64]}#{empty}#{empty,empty}",
 		},
 		{
 			name:        "t5-2",
 			queryString: "select max(*) from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:00:20Z' and hostname='host_0'",
-			expected:    "{(cpu.hostname=host_0)}#{time[int64],usage_guest[float64],usage_guest_nice[float64],usage_idle[float64],usage_iowait[float64],usage_irq[float64],usage_nice[float64],usage_softirq[float64],usage_steal[float64],usage_system[float64],usage_user[float64]}#{empty}#{max,empty}",
+			expected:    "{(cpu.hostname=host_0)}#{usage_guest[float64],usage_guest_nice[float64],usage_idle[float64],usage_iowait[float64],usage_irq[float64],usage_nice[float64],usage_softirq[float64],usage_steal[float64],usage_system[float64],usage_user[float64]}#{empty}#{max,empty}",
 		},
 		{
 			name:        "t5-3",
 			queryString: "select mean(*) from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:00:20Z' and hostname='host_0'",
-			expected:    "{(cpu.hostname=host_0)}#{time[int64],usage_guest[float64],usage_guest_nice[float64],usage_idle[float64],usage_iowait[float64],usage_irq[float64],usage_nice[float64],usage_softirq[float64],usage_steal[float64],usage_system[float64],usage_user[float64]}#{empty}#{mean,empty}",
+			expected:    "{(cpu.hostname=host_0)}#{usage_guest[float64],usage_guest_nice[float64],usage_idle[float64],usage_iowait[float64],usage_irq[float64],usage_nice[float64],usage_softirq[float64],usage_steal[float64],usage_system[float64],usage_user[float64]}#{empty}#{mean,empty}",
 		},
 		{
 			name:        "t6-1",
 			queryString: "select usage_guest from test..cpu where time >= '2022-01-01T09:00:00Z' and time < '2022-01-01T10:00:00Z' and hostname='host_0' and usage_guest > 99.0",
-			expected:    "{(cpu.hostname=host_0)}#{time[int64],usage_guest[float64]}#{(usage_guest>99.000[float64])}#{empty,empty}",
+			expected:    "{(cpu.hostname=host_0)}#{usage_guest[float64]}#{(usage_guest>99.000[float64])}#{empty,empty}",
 		},
 		{
 			name:        "t7-1",
 			queryString: "select usage_guest from test..cpu where time >= '2022-01-01T09:15:00Z' and time < '2022-01-01T09:20:00Z' and usage_guest > 99.0 group by hostname",
-			expected:    "{(cpu.hostname=host_0)(cpu.hostname=host_1)(cpu.hostname=host_3)}#{time[int64],usage_guest[float64]}#{(usage_guest>99.000[float64])}#{empty,empty}",
+			expected:    "{(cpu.hostname=host_0)(cpu.hostname=host_1)(cpu.hostname=host_3)}#{usage_guest[float64]}#{(usage_guest>99.000[float64])}#{empty,empty}",
 		},
 	}
 	for _, tt := range tests {
@@ -1816,42 +1816,42 @@ func TestSemanticSegmentDBTest(t *testing.T) {
 		{
 			name:        "1",
 			queryString: "SELECT *::field FROM cpu limit 10",
-			expected:    "{(cpu.empty)}#{time[int64],usage_guest[float64],usage_guest_nice[float64],usage_idle[float64],usage_iowait[float64],usage_irq[float64],usage_nice[float64],usage_softirq[float64],usage_steal[float64],usage_system[float64],usage_user[float64]}#{empty}#{empty,empty}",
+			expected:    "{(cpu.empty)}#{usage_guest[float64],usage_guest_nice[float64],usage_idle[float64],usage_iowait[float64],usage_irq[float64],usage_nice[float64],usage_softirq[float64],usage_steal[float64],usage_system[float64],usage_user[float64]}#{empty}#{empty,empty}",
 		},
 		//{
 		//	name:        "2",
 		//	queryString: "SELECT *::field FROM cpu limit 10000000", // 中等规模数据集有一千二百五十万条数据	一万条数据 0.9s 	十万条数据 8.5s	一百万条数据 55.9s	一千万条数据 356.7s
-		//	expected:    "{(cpu.empty)}#{time[int64],usage_guest[float64],usage_guest_nice[float64],usage_idle[float64],usage_iowait[float64],usage_irq[float64],usage_nice[float64],usage_softirq[float64],usage_steal[float64],usage_system[float64],usage_user[float64]}#{empty}#{empty,empty}",
+		//	expected:    "{(cpu.empty)}#{usage_guest[float64],usage_guest_nice[float64],usage_idle[float64],usage_iowait[float64],usage_irq[float64],usage_nice[float64],usage_softirq[float64],usage_steal[float64],usage_system[float64],usage_user[float64]}#{empty}#{empty,empty}",
 		//},
 		{
 			name:        "3",
 			queryString: "SELECT usage_steal,usage_idle,usage_guest,usage_user FROM cpu GROUP BY service,team limit 10",
-			expected:    "{(cpu.service=18,cpu.team=CHI)(cpu.service=2,cpu.team=LON)(cpu.service=4,cpu.team=NYC)(cpu.service=6,cpu.team=NYC)}#{time[int64],usage_steal[float64],usage_idle[float64],usage_guest[float64],usage_user[float64]}#{empty}#{empty,empty}",
+			expected:    "{(cpu.service=18,cpu.team=CHI)(cpu.service=2,cpu.team=LON)(cpu.service=4,cpu.team=NYC)(cpu.service=6,cpu.team=NYC)}#{usage_steal[float64],usage_idle[float64],usage_guest[float64],usage_user[float64]}#{empty}#{empty,empty}",
 		},
 		{
 			name:        "4",
 			queryString: "SELECT usage_steal,usage_idle,usage_guest,usage_user FROM cpu WHERE hostname = 'host_1' GROUP BY service,team limit 1000",
-			expected:    "{(cpu.hostname=host_1,cpu.service=6,cpu.team=NYC)}#{time[int64],usage_steal[float64],usage_idle[float64],usage_guest[float64],usage_user[float64]}#{empty}#{empty,empty}",
+			expected:    "{(cpu.hostname=host_1,cpu.service=6,cpu.team=NYC)}#{usage_steal[float64],usage_idle[float64],usage_guest[float64],usage_user[float64]}#{empty}#{empty,empty}",
 		},
 		{
 			name:        "5",
 			queryString: "SELECT usage_steal,usage_guest,usage_user FROM cpu WHERE rack = '4' AND usage_user > 30.0 AND usage_steal < 90 GROUP BY service,team limit 10",
-			expected:    "{(cpu.rack=4,cpu.service=18,cpu.team=CHI)}#{time[int64],usage_steal[float64],usage_guest[float64],usage_user[float64]}#{(usage_user>30.000[float64])(usage_steal<90[int64])}#{empty,empty}",
+			expected:    "{(cpu.rack=4,cpu.service=18,cpu.team=CHI)}#{usage_steal[float64],usage_guest[float64],usage_user[float64]}#{(usage_user>30.000[float64])(usage_steal<90[int64])}#{empty,empty}",
 		},
 		{
 			name:        "6",
 			queryString: "SELECT MEAN(usage_steal) FROM cpu WHERE rack = '4' AND usage_user > 30.0 AND usage_steal < 90 GROUP BY service,team,time(1m) limit 10",
-			expected:    "{(cpu.rack=4,cpu.service=18,cpu.team=CHI)}#{time[int64],usage_steal[float64]}#{(usage_user>30.000[float64])(usage_steal<90[int64])}#{mean,1m}",
+			expected:    "{(cpu.rack=4,cpu.service=18,cpu.team=CHI)}#{usage_steal[float64]}#{(usage_user>30.000[float64])(usage_steal<90[int64])}#{mean,1m}",
 		},
 		{
 			name:        "7", // 11.8s 运行所需时间长是由于向数据库查询的时间长，不是客户端的问题，客户端生成语义段只用到了查询结果的表结构，不需要遍历表里的数据
 			queryString: "SELECT MAX(usage_steal) FROM cpu WHERE usage_steal < 90.0 GROUP BY service,team,time(1m) limit 10",
-			expected:    "{(cpu.service=18,cpu.team=CHI)(cpu.service=2,cpu.team=LON)(cpu.service=4,cpu.team=NYC)(cpu.service=6,cpu.team=NYC)}#{time[int64],usage_steal[float64]}#{(usage_steal<90.000[float64])}#{max,1m}",
+			expected:    "{(cpu.service=18,cpu.team=CHI)(cpu.service=2,cpu.team=LON)(cpu.service=4,cpu.team=NYC)(cpu.service=6,cpu.team=NYC)}#{usage_steal[float64]}#{(usage_steal<90.000[float64])}#{max,1m}",
 		},
 		{
 			name:        "8",
 			queryString: "SELECT usage_steal,usage_nice,usage_iowait FROM cpu WHERE usage_steal < 90.0 AND time > '2022-01-01T00:00:00Z' AND time < '2022-05-01T00:00:00Z' GROUP BY service,team limit 10",
-			expected:    "{(cpu.service=18,cpu.team=CHI)(cpu.service=2,cpu.team=LON)(cpu.service=4,cpu.team=NYC)(cpu.service=6,cpu.team=NYC)}#{time[int64],usage_steal[float64],usage_nice[float64],usage_iowait[float64]}#{(usage_steal<90.000[float64])}#{empty,empty}",
+			expected:    "{(cpu.service=18,cpu.team=CHI)(cpu.service=2,cpu.team=LON)(cpu.service=4,cpu.team=NYC)(cpu.service=6,cpu.team=NYC)}#{usage_steal[float64],usage_nice[float64],usage_iowait[float64]}#{(usage_steal<90.000[float64])}#{empty,empty}",
 		},
 		{
 			name:        "9",
@@ -1861,22 +1861,22 @@ func TestSemanticSegmentDBTest(t *testing.T) {
 		{
 			name:        "10",
 			queryString: "SELECT usage_user,usage_nice,usage_irq,usage_system FROM cpu WHERE hostname = 'host_1' AND arch = 'x64' AND usage_user > 90.0 AND usage_irq > 10 AND service_version = '0' AND time > '2022-01-01T00:00:00Z' AND time < '2022-05-01T00:00:00Z' GROUP BY service,region,team limit 10",
-			expected:    "{(cpu.arch=x64,cpu.hostname=host_1,cpu.region=us-west-2,cpu.service=6,cpu.service_version=0,cpu.team=NYC)}#{time[int64],usage_user[float64],usage_nice[float64],usage_irq[float64],usage_system[float64]}#{(usage_user>90.000[float64])(usage_irq>10[int64])}#{empty,empty}",
+			expected:    "{(cpu.arch=x64,cpu.hostname=host_1,cpu.region=us-west-2,cpu.service=6,cpu.service_version=0,cpu.team=NYC)}#{usage_user[float64],usage_nice[float64],usage_irq[float64],usage_system[float64]}#{(usage_user>90.000[float64])(usage_irq>10[int64])}#{empty,empty}",
 		},
 		{
 			name:        "11", // 0.9s
 			queryString: "SELECT COUNT(usage_user) FROM cpu WHERE hostname = 'host_1' AND arch = 'x64' AND usage_user > 90.0 AND usage_irq > 10.0 AND service_version = '0' AND time > '2022-01-01T00:00:00Z' AND time < '2022-05-01T00:00:00Z' GROUP BY service,region,team,time(3h) limit 10",
-			expected:    "{(cpu.arch=x64,cpu.hostname=host_1,cpu.region=us-west-2,cpu.service=6,cpu.service_version=0,cpu.team=NYC)}#{time[int64],usage_user[int64]}#{(usage_user>90.000[float64])(usage_irq>10.000[float64])}#{count,3h}",
+			expected:    "{(cpu.arch=x64,cpu.hostname=host_1,cpu.region=us-west-2,cpu.service=6,cpu.service_version=0,cpu.team=NYC)}#{usage_user[int64]}#{(usage_user>90.000[float64])(usage_irq>10.000[float64])}#{count,3h}",
 		},
 		{
 			name:        "12", // 0.9s
 			queryString: "SELECT COUNT(usage_user) FROM cpu WHERE hostname = 'host_1' AND arch = 'x64' AND usage_user > 90.0 AND usage_irq > 10.0 AND service_version = '0' AND time > '2022-01-01T00:00:00Z' AND time < '2022-05-01T00:00:00Z' GROUP BY service,region,team,time(3h)",
-			expected:    "{(cpu.arch=x64,cpu.hostname=host_1,cpu.region=us-west-2,cpu.service=6,cpu.service_version=0,cpu.team=NYC)}#{time[int64],usage_user[int64]}#{(usage_user>90.000[float64])(usage_irq>10.000[float64])}#{count,3h}",
+			expected:    "{(cpu.arch=x64,cpu.hostname=host_1,cpu.region=us-west-2,cpu.service=6,cpu.service_version=0,cpu.team=NYC)}#{usage_user[int64]}#{(usage_user>90.000[float64])(usage_irq>10.000[float64])}#{count,3h}",
 		},
 		{
 			name:        "13",
 			queryString: "SELECT MIN(usage_irq) FROM cpu WHERE hostname = 'host_1' AND usage_user > 90.0 AND usage_irq > 10.0 AND time > '2022-01-01T00:00:00Z' AND time < '2022-05-01T00:00:00Z' GROUP BY arch,service,region,team,time(3h) limit 10",
-			expected:    "{(cpu.arch=x64,cpu.hostname=host_1,cpu.region=us-west-2,cpu.service=6,cpu.team=NYC)}#{time[int64],usage_irq[float64]}#{(usage_user>90.000[float64])(usage_irq>10.000[float64])}#{min,3h}",
+			expected:    "{(cpu.arch=x64,cpu.hostname=host_1,cpu.region=us-west-2,cpu.service=6,cpu.team=NYC)}#{usage_irq[float64]}#{(usage_user>90.000[float64])(usage_irq>10.000[float64])}#{min,3h}",
 		},
 	}
 	for _, tt := range tests {
@@ -1905,87 +1905,87 @@ func TestSemanticSegment(t *testing.T) {
 		{
 			name:        "without WHERE",
 			queryString: "SELECT index FROM h2o_quality",
-			expected:    "{(h2o_quality.empty)}#{time[int64],index[int64]}#{empty}#{empty,empty}",
+			expected:    "{(h2o_quality.empty)}#{index[int64]}#{empty}#{empty,empty}",
 		},
 		{
 			name:        "SF SP",
 			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek'",
-			expected:    "{(h2o_quality.location=coyote_creek)}#{time[int64],index[int64]}#{empty}#{empty,empty}",
+			expected:    "{(h2o_quality.location=coyote_creek)}#{index[int64]}#{empty}#{empty,empty}",
 		},
 		{
 			name:        "SF SP",
 			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek' GROUP BY randtag",
-			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=1)(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)(h2o_quality.location=coyote_creek,h2o_quality.randtag=3)}#{time[int64],index[int64]}#{empty}#{empty,empty}",
+			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=1)(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)(h2o_quality.location=coyote_creek,h2o_quality.randtag=3)}#{index[int64]}#{empty}#{empty,empty}",
 		},
 		{
 			name:        "SF SP",
 			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek' GROUP BY randtag,location",
-			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=1)(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)(h2o_quality.location=coyote_creek,h2o_quality.randtag=3)}#{time[int64],index[int64]}#{empty}#{empty,empty}",
+			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=1)(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)(h2o_quality.location=coyote_creek,h2o_quality.randtag=3)}#{index[int64]}#{empty}#{empty,empty}",
 		},
 		{
 			name:        "SF SP",
 			queryString: "SELECT index FROM h2o_quality WHERE randtag='1' AND location='coyote_creek' AND index>50 GROUP BY randtag",
-			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=1)}#{time[int64],index[int64]}#{(index>50[int64])}#{empty,empty}",
+			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=1)}#{index[int64]}#{(index>50[int64])}#{empty,empty}",
 		},
 		{
 			name:        "SM SF SP ST",
 			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag",
-			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=1)(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)(h2o_quality.location=coyote_creek,h2o_quality.randtag=3)}#{time[int64],index[int64]}#{empty}#{empty,empty}",
+			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=1)(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)(h2o_quality.location=coyote_creek,h2o_quality.randtag=3)}#{index[int64]}#{empty}#{empty,empty}",
 		},
 		{
 			name:        "SM SF SP ST SG",
 			queryString: "SELECT MAX(water_level) FROM h2o_feet WHERE location='coyote_creek' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY location,time(12m)",
-			expected:    "{(h2o_feet.location=coyote_creek)}#{time[int64],water_level[float64]}#{empty}#{max,12m}",
+			expected:    "{(h2o_feet.location=coyote_creek)}#{water_level[float64]}#{empty}#{max,12m}",
 		},
 		{
 			name:        "three fields without aggr",
 			queryString: "SELECT index,location,randtag FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z'",
-			expected:    "{(h2o_quality.empty)}#{time[int64],index[int64],location[string],randtag[string]}#{empty}#{empty,empty}",
+			expected:    "{(h2o_quality.empty)}#{index[int64],location[string],randtag[string]}#{empty}#{empty,empty}",
 		},
 		{
 			name:        "SM three fields without aggr",
 			queryString: "SELECT index,location,randtag FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag",
-			expected:    "{(h2o_quality.randtag=1)(h2o_quality.randtag=2)(h2o_quality.randtag=3)}#{time[int64],index[int64],location[string],randtag[string]}#{empty}#{empty,empty}",
+			expected:    "{(h2o_quality.randtag=1)(h2o_quality.randtag=2)(h2o_quality.randtag=3)}#{index[int64],location[string],randtag[string]}#{empty}#{empty,empty}",
 		},
 		{
 			name:        "SM SP three fields without aggr",
 			queryString: "SELECT index,location,randtag FROM h2o_quality WHERE location='coyote_creek' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag,location",
-			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=1)(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)(h2o_quality.location=coyote_creek,h2o_quality.randtag=3)}#{time[int64],index[int64],location[string],randtag[string]}#{empty}#{empty,empty}",
+			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=1)(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)(h2o_quality.location=coyote_creek,h2o_quality.randtag=3)}#{index[int64],location[string],randtag[string]}#{empty}#{empty,empty}",
 		},
 		{
 			name:        "SM SP three fields three predicates",
 			queryString: "SELECT index,location,randtag FROM h2o_quality WHERE location='coyote_creek' AND randtag='2' AND index>50 AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag,location",
-			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)}#{time[int64],index[int64],location[string],randtag[string]}#{(index>50[int64])}#{empty,empty}",
+			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)}#{index[int64],location[string],randtag[string]}#{(index>50[int64])}#{empty,empty}",
 		},
 		{
 			name:        "SP SG aggregation and three predicates",
 			queryString: "SELECT COUNT(index) FROM h2o_quality WHERE location='coyote_creek' AND randtag='2' AND index>50 AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag,location,time(10s)",
-			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)}#{time[int64],index[int64]}#{(index>50[int64])}#{count,10s}",
+			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)}#{index[int64]}#{(index>50[int64])}#{count,10s}",
 		},
 		{
 			name:        "SP SG aggregation and three predicates",
 			queryString: "SELECT COUNT(index) FROM h2o_quality WHERE location='coyote_creek' AND randtag='2' AND index>50 AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY time(10s)",
-			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)}#{time[int64],index[int64]}#{(index>50[int64])}#{count,10s}",
+			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)}#{index[int64]}#{(index>50[int64])}#{count,10s}",
 		},
 		{
 			name:        "three predicates(OR)",
 			queryString: "SELECT water_level FROM h2o_feet WHERE location <> 'santa_monica' AND (water_level < -0.59 OR water_level > 9.95) AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-30T00:30:00Z' GROUP BY location",
-			expected:    "{(h2o_feet.location=coyote_creek)}#{time[int64],water_level[float64]}#{(water_level<-0.590[float64])(water_level>9.950[float64])}#{empty,empty}",
+			expected:    "{(h2o_feet.location=coyote_creek)}#{water_level[float64]}#{(water_level<-0.590[float64])(water_level>9.950[float64])}#{empty,empty}",
 		},
 		{
 			name:        "three predicates(OR)",
 			queryString: "SELECT water_level FROM h2o_feet WHERE location <> 'santa_monica' AND (water_level < -0.59 OR water_level > 9.95) AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-30T00:30:00Z'",
-			expected:    "{(h2o_feet.location!=santa_monica)}#{time[int64],water_level[float64]}#{(water_level<-0.590[float64])(water_level>9.950[float64])}#{empty,empty}",
+			expected:    "{(h2o_feet.location!=santa_monica)}#{water_level[float64]}#{(water_level<-0.590[float64])(water_level>9.950[float64])}#{empty,empty}",
 		},
 		{
 			name:        "time() and two tags",
 			queryString: "SELECT MAX(index) FROM h2o_quality WHERE randtag<>'1' AND index>=50 AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-20T00:30:00Z' GROUP BY location,time(12m),randtag",
-			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)(h2o_quality.location=coyote_creek,h2o_quality.randtag=3)(h2o_quality.location=santa_monica,h2o_quality.randtag=2)(h2o_quality.location=santa_monica,h2o_quality.randtag=3)}#{time[int64],index[int64]}#{(index>=50[int64])}#{max,12m}",
+			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)(h2o_quality.location=coyote_creek,h2o_quality.randtag=3)(h2o_quality.location=santa_monica,h2o_quality.randtag=2)(h2o_quality.location=santa_monica,h2o_quality.randtag=3)}#{index[int64]}#{(index>=50[int64])}#{max,12m}",
 		},
 		{
 			name:        "time() and two tags",
 			queryString: "SELECT MAX(index) FROM h2o_quality WHERE randtag<>'1' AND index>=50 AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-20T00:30:00Z' GROUP BY location,time(12m)",
-			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag!=1)(h2o_quality.location=santa_monica,h2o_quality.randtag!=1)}#{time[int64],index[int64]}#{(index>=50[int64])}#{max,12m}",
+			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag!=1)(h2o_quality.location=santa_monica,h2o_quality.randtag!=1)}#{index[int64]}#{(index>=50[int64])}#{max,12m}",
 		},
 	}
 
@@ -2016,49 +2016,49 @@ func TestSeperateSemanticSegment(t *testing.T) {
 			name:        "empty tag",
 			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z'",
 			expected: []string{
-				"{(h2o_quality.location=coyote_creek)}#{time[int64],index[int64]}#{empty}#{empty,empty}",
+				"{(h2o_quality.location=coyote_creek)}#{index[int64]}#{empty}#{empty,empty}",
 			},
 		},
 		{
 			name:        "four tables two tags",
 			queryString: "SELECT MAX(index) FROM h2o_quality WHERE randtag<>'1' AND index>=50 AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-20T00:30:00Z' GROUP BY location,time(12m),randtag",
 			expected: []string{
-				"{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)}#{time[int64],index[int64]}#{(index>=50[int64])}#{max,12m}",
-				"{(h2o_quality.location=coyote_creek,h2o_quality.randtag=3)}#{time[int64],index[int64]}#{(index>=50[int64])}#{max,12m}",
-				"{(h2o_quality.location=santa_monica,h2o_quality.randtag=2)}#{time[int64],index[int64]}#{(index>=50[int64])}#{max,12m}",
-				"{(h2o_quality.location=santa_monica,h2o_quality.randtag=3)}#{time[int64],index[int64]}#{(index>=50[int64])}#{max,12m}",
+				"{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)}#{index[int64]}#{(index>=50[int64])}#{max,12m}",
+				"{(h2o_quality.location=coyote_creek,h2o_quality.randtag=3)}#{index[int64]}#{(index>=50[int64])}#{max,12m}",
+				"{(h2o_quality.location=santa_monica,h2o_quality.randtag=2)}#{index[int64]}#{(index>=50[int64])}#{max,12m}",
+				"{(h2o_quality.location=santa_monica,h2o_quality.randtag=3)}#{index[int64]}#{(index>=50[int64])}#{max,12m}",
 			},
 		},
 		{
 			name:        "three table one tag",
 			queryString: "SELECT index,location,randtag FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag",
 			expected: []string{
-				"{(h2o_quality.randtag=1)}#{time[int64],index[int64],location[string],randtag[string]}#{empty}#{empty,empty}",
-				"{(h2o_quality.randtag=2)}#{time[int64],index[int64],location[string],randtag[string]}#{empty}#{empty,empty}",
-				"{(h2o_quality.randtag=3)}#{time[int64],index[int64],location[string],randtag[string]}#{empty}#{empty,empty}",
+				"{(h2o_quality.randtag=1)}#{index[int64],location[string],randtag[string]}#{empty}#{empty,empty}",
+				"{(h2o_quality.randtag=2)}#{index[int64],location[string],randtag[string]}#{empty}#{empty,empty}",
+				"{(h2o_quality.randtag=3)}#{index[int64],location[string],randtag[string]}#{empty}#{empty,empty}",
 			},
 		},
 		{
 			name:        "",
 			queryString: "SELECT index FROM h2o_quality WHERE randtag='2' AND index<60 AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY location",
 			expected: []string{
-				"{(h2o_quality.location=santa_monica,h2o_quality.randtag=2)}#{time[int64],index[int64]}#{(index<60[int64])}#{empty,empty}",
+				"{(h2o_quality.location=santa_monica,h2o_quality.randtag=2)}#{index[int64]}#{(index<60[int64])}#{empty,empty}",
 			},
 		},
 		{
 			name:        "",
 			queryString: "SELECT index FROM h2o_quality WHERE randtag='2' AND index>40 AND index<60 AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-09-30T00:30:00Z' GROUP BY location",
 			expected: []string{
-				"{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)}#{time[int64],index[int64]}#{(index>40[int64])(index<60[int64])}#{empty,empty}",
-				"{(h2o_quality.location=santa_monica,h2o_quality.randtag=2)}#{time[int64],index[int64]}#{(index>40[int64])(index<60[int64])}#{empty,empty}",
+				"{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)}#{index[int64]}#{(index>40[int64])(index<60[int64])}#{empty,empty}",
+				"{(h2o_quality.location=santa_monica,h2o_quality.randtag=2)}#{index[int64]}#{(index>40[int64])(index<60[int64])}#{empty,empty}",
 			},
 		},
 		{
 			name:        "",
 			queryString: "SELECT index FROM h2o_quality WHERE randtag='2' AND index>40 AND index<60 AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-09-30T00:30:00Z' GROUP BY location,randtag",
 			expected: []string{
-				"{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)}#{time[int64],index[int64]}#{(index>40[int64])(index<60[int64])}#{empty,empty}",
-				"{(h2o_quality.location=santa_monica,h2o_quality.randtag=2)}#{time[int64],index[int64]}#{(index>40[int64])(index<60[int64])}#{empty,empty}",
+				"{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)}#{index[int64]}#{(index>40[int64])(index<60[int64])}#{empty,empty}",
+				"{(h2o_quality.location=santa_monica,h2o_quality.randtag=2)}#{index[int64]}#{(index>40[int64])(index<60[int64])}#{empty,empty}",
 			},
 		},
 	}
@@ -3820,7 +3820,7 @@ func TestByteArrayToResponse(t *testing.T) {
 				"[1566086760000000000 66]\r\n" +
 				"......(共64条数据)",
 		},
-		//{ // Get() 的最大字节数限制 ?	和字节数无关，只能读取最多 64 条数据（怎么会和数据条数相关 ?）	去掉了Get()中的异常处理，可以正常用了，但是为什么?
+		//{ // Get() 的最大字节数限制 ?	和字节数无关，只能读取最多 64 条数据（怎么会和数据条数相关 ?）	去掉了Get()中的异常处理，可以正常用了，但是为什么?	把数字错误当作换行符的ASCII码处理了，导致进入了异常处理
 		//	name:        "one table two columns without limit",
 		//	queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek' AND  time >= '2019-08-18T00:00:00Z'",
 		//	expected: "{(h2o_quality.empty_tag)}#{time[int64],index[int64]}#{(location='coyote_creek'[string])}#{empty,empty} [0 0 0 0 0 0 4 0]\r\n" +
