@@ -34,8 +34,8 @@ type ContentEncoding string
 
 // 连接数据库
 var c, err = NewHTTPClient(HTTPConfig{
-	//Addr: "http://10.170.48.244:8086",
-	Addr: "http://localhost:8086",
+	Addr: "http://10.170.48.244:8086",
+	//Addr: "http://localhost:8086",
 	//Username: username,
 	//Password: password,
 })
@@ -52,8 +52,8 @@ const STRINGBYTELENGTH = 25
 
 // 数据库名称
 const (
-	MyDB = "NOAA_water_database"
-	//MyDB     = "test"
+	//MyDB = "NOAA_water_database"
+	MyDB     = "test"
 	username = "root"
 	password = "12345678"
 )
