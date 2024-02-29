@@ -52,8 +52,8 @@ const STRINGBYTELENGTH = 25
 
 // 数据库名称
 const (
-	//MyDB = "NOAA_water_database"
-	MyDB     = "test"
+	MyDB = "NOAA_water_database"
+	//MyDB     = "test"
 	username = "root"
 	password = "12345678"
 )
@@ -1080,6 +1080,18 @@ func MergeSeries(resp1, resp2 *Response) []Series {
 	tagsMap1 := GetSeriesTagsMap(resp1)
 	tagsMap2 := GetSeriesTagsMap(resp2)
 
+	/* 考虑到cache的数据转换回来之后冗余tag的情况，获取结果中有效的tag */
+	resTagArr := make([]string, 0)
+	if len(tagsMap1[0]) <= len(tagsMap2[0]) {
+		for k := range tagsMap1[0] {
+			resTagArr = append(resTagArr, k)
+		}
+	} else {
+		for k := range tagsMap2[0] {
+			resTagArr = append(resTagArr, k)
+		}
+	}
+
 	/* 没用 GROUP BY 时长度为 1，map[0:map[]] */
 	len1 := len(tagsMap1)
 	len2 := len(tagsMap2)
@@ -1111,13 +1123,28 @@ func MergeSeries(resp1, resp2 *Response) []Series {
 			tagStr2 := TagsMapToString(tagsMap2[index2])
 
 			/* 不是同一张表 */
-			if strings.Compare(tagStr1, tagStr2) != 0 {
+			//if strings.Compare(tagStr1, tagStr2) != 0 {
+			if !strings.Contains(tagStr1, tagStr2) && !strings.Contains(tagStr2, tagStr1) { // 考虑从cache转换回来的结果可能会有多余的谓词tag，改用是不是子串判断
 				if !strings.Contains(str2, tagStr1) { // 表示结果2中没有结果1的这张表，只把这张表添加到合并结果中
-					tagsMapMerged[indexAll] = tagsMap1[index1]
+					tmpMap := make(map[string]string)
+					for k, v := range tagsMap1[index1] { // 找出有效的tag
+						if slices.Contains(resTagArr, k) {
+							tmpMap[k] = v
+						}
+					}
+					//tagsMapMerged[indexAll] = tagsMap1[index1]
+					tagsMapMerged[indexAll] = tmpMap
 					index1++
 					indexAll++
 				} else if !strings.Contains(str1, tagStr2) { // 结果2独有的表
-					tagsMapMerged[indexAll] = tagsMap2[index2]
+					tmpMap := make(map[string]string)
+					for k, v := range tagsMap2[index2] {
+						if slices.Contains(resTagArr, k) {
+							tmpMap[k] = v
+						}
+					}
+					//tagsMapMerged[indexAll] = tagsMap2[index2]
+					tagsMapMerged[indexAll] = tmpMap
 					index2++
 					indexAll++
 				}
@@ -1125,18 +1152,46 @@ func MergeSeries(resp1, resp2 *Response) []Series {
 			}
 
 			/* 是同一张表 */
-			if same {
+			/*if same {
 				tagsMapMerged[indexAll] = tagsMap1[index1]
 				index1++ // 两张表的索引都要后移
 				index2++
 				indexAll++
+			}*/
+			if same {
+				if strings.Contains(tagStr1, tagStr2) {
+					tagsMapMerged[indexAll] = tagsMap2[index2] // 考虑到多余的tag，选用tag数量少的作为合并结果的tag
+					index1++
+					index2++
+					indexAll++
+				} else {
+					tagsMapMerged[indexAll] = tagsMap1[index1]
+					index1++
+					index2++
+					indexAll++
+				}
 			}
+
 		} else if index1 == len1 && index2 < len2 { // 只剩结果2的表了
-			tagsMapMerged[indexAll] = tagsMap2[index2]
+			tmpMap := make(map[string]string)
+			for k, v := range tagsMap2[index2] { // 找出有效的tag
+				if slices.Contains(resTagArr, k) {
+					tmpMap[k] = v
+				}
+			}
+			//tagsMapMerged[indexAll] = tagsMap2[index2]
+			tagsMapMerged[indexAll] = tmpMap
 			index2++
 			indexAll++
 		} else if index1 < len1 && index2 == len2 { // 只剩结果1的表了
-			tagsMapMerged[indexAll] = tagsMap1[index1]
+			tmpMap := make(map[string]string)
+			for k, v := range tagsMap1[index1] {
+				if slices.Contains(resTagArr, k) {
+					tmpMap[k] = v
+				}
+			}
+			//tagsMapMerged[indexAll] = tagsMap1[index1]
+			tagsMapMerged[indexAll] = tmpMap
 			index1++
 			indexAll++
 		}
@@ -2066,7 +2121,7 @@ func (resp *Response) ToByteArray(queryString string) []byte {
 	datatypes := DataTypeArrayFromResponse(resp)
 
 	/* 获取每张表单独的语义段 */
-	seprateSemanticSegment := SeperateSemanticSegment(queryString, resp)
+	seperateSemanticSegment := SeperateSemanticSegment(queryString, resp)
 
 	/* 每行数据的字节数 */
 	bytesPerLine := BytesPerLine(datatypes)
@@ -2076,12 +2131,12 @@ func (resp *Response) ToByteArray(queryString string) []byte {
 		bytesPerSeries, _ := Int64ToByteArray(int64(bytesPerLine * numOfValues)) // 一张表的数据的总字节数：每行字节数 * 行数
 
 		/* 存入一张表的 semantic segment 和表内所有数据的总字节数 */
-		result = append(result, []byte(seprateSemanticSegment[i])...)
+		result = append(result, []byte(seperateSemanticSegment[i])...)
 		result = append(result, []byte(" ")...)
 		result = append(result, bytesPerSeries...)
-		result = append(result, []byte("\r\n")...) // 是否需要换行
+		//result = append(result, []byte("\r\n")...) // 是否需要换行	没啥必要，看看去掉了有什么影响 //todo 去掉元数据的这个换行符 从字节数组转换回来也要改
 
-		//fmt.Printf("%s %d\r\n", seprateSemanticSegment[i], bytesPerSeries)
+		//fmt.Printf("%s %d\r\n", seperateSemanticSegment[i], bytesPerSeries)
 
 		/* 数据转换成字节数组，存入 */
 		for _, v := range s.Values {
@@ -2094,8 +2149,8 @@ func (resp *Response) ToByteArray(queryString string) []byte {
 			//fmt.Println(v)
 			//fmt.Print(v)
 
-			/* 如果传入cache的数据之间不需要换行，就把这一行注释掉 */
-			result = append(result, []byte("\r\n")...) // 每条数据之后换行
+			/* 如果传入cache的数据之间不需要换行，就把这一行注释掉；如果cache处理数据时也没加换行符，那么从字节数组转换成结果类型的部分也要修改 */
+			//result = append(result, []byte("\r\n")...) // 每条数据之后换行
 		}
 		/* 如果表之间需要换行，在这里添加换行符，但是从字节数组转换成结果类型的部分也要修改 */
 		//result = append(result, []byte("\r\n")...) // 每条数据之后换行
@@ -2104,6 +2159,12 @@ func (resp *Response) ToByteArray(queryString string) []byte {
 	return result
 }
 
+/* todo	由字节数组转换成结果类型时，在查询语句的谓词中出现的tag不应该被添加到结果类型的 Tags 中，Tags中只有 GROUP BY tag：如何区分 谓词的tag 和 GROUP BY tag
+在生成语义段的过程中，关于tag的谓词会被添加到SM中，而不是留在SP；（用作为全局变量的TagKV（当前数据库的所有tag及其值）判断谓词是否是tag）
+GROUP BY tag 会和 tag 谓词一起出现在SM中
+如何区分两种tag：当前条件下没办法，但是可以通过调整查询语句避免这一问题：把出现在WHRER中的tag也写进GROUP BY，让转换前后的结果中都存在多余的谓词tag
+
+*/
 // 字节数组转换成结果类型
 func ByteArrayToResponse(byteArray []byte) *Response {
 
@@ -2159,13 +2220,14 @@ func ByteArrayToResponse(byteArray []byte) *Response {
 			seriesLength = append(seriesLength, curLen)
 
 			/* 如果SCHEMA和数据之间不需要换行，把这一行注释掉 */
-			index += 2 // 索引指向换行符之后的第一个字节，开始读具体数据
+			//index += 2 // 索引指向换行符之后的第一个字节，开始读具体数据
 		}
 
 		/* 从 curSeg 取出包含每列的数据类型的字符串sf,获取数据类型数组 */
 		// 所有数据和数据类型都存放在数组中，位置是对应的
+		sf := "time[int64]," // sf中去掉了time，需要再添上time，让field数量和列数对应
 		messages := strings.Split(curSeg, "#")
-		sf := messages[1][1 : len(messages[1])-1] // 去掉大括号，包含列名和数据类型的字符串
+		sf += messages[1][1 : len(messages[1])-1] // 去掉大括号，包含列名和数据类型的字符串
 		datatypes := DataTypeArrayFromSF(sf)      // 每列的数据类型
 
 		/* 根据数据类型转换每行数据*/
@@ -2241,7 +2303,7 @@ func ByteArrayToResponse(byteArray []byte) *Response {
 	modelsRows := make([]models.Row, 0)
 
 	// {SSM}#{SF}#{SP}#{SG}
-	// 需要 SSM (name.tag=value) 中的 measurement name 和 tag value	可能是 empty_tag
+	// 需要 SSM (name.tag=value) 中的 measurement name 和 tag value
 	// 需要 SF 中的列名（考虑 SG 中的聚合函数）
 	// values [][]interface{} 直接插入
 	for i, s := range seprateSemanticSegments {
@@ -2266,7 +2328,8 @@ func ByteArrayToResponse(byteArray []byte) *Response {
 
 		/* 处理sf 如果有聚合函数，列名要用函数名，否则用sf中的列名*/
 		columns := make([]string, 0)
-		sf := messages[1][1 : len(messages[1])-1]
+		sf := "time[int64]," // sf中去掉了第一列的time，还原时要添上
+		sf += messages[1][1 : len(messages[1])-1]
 		sg := messages[3][1 : len(messages[3])-1]
 		splitSg := strings.Split(sg, ",")
 		aggr := splitSg[0]                       // 聚合函数名，小写的

@@ -3547,6 +3547,15 @@ func TestMergeSeries(t *testing.T) {
 				"location=santa_monica randtag=1 \r\n" +
 				"location=santa_monica randtag=3 \r\n",
 		},
+		{
+			name: "redundant tag",
+			queryString: []string{
+				"SELECT index,location,randtag FROM h2o_quality WHERE randtag='3' AND time >= '2019-08-18T01:31:00Z' AND time <= '2019-08-18T01:40:00Z' GROUP BY location",
+				"SELECT index,location,randtag FROM h2o_quality WHERE randtag='3' AND time >= '2019-08-18T01:40:00Z' AND time <= '2019-08-18T01:50:00Z' GROUP BY location",
+			},
+			expected: "location=coyote_creek \r\n" +
+				"location=santa_monica \r\n",
+		},
 	}
 
 	for _, tt := range tests {
@@ -3624,6 +3633,51 @@ func TestMergeSeries2(t *testing.T) {
 	//2019-08-18T03:42:00Z 69 santa_monica 3
 	//2019-08-18T04:00:00Z 22 santa_monica 3
 	//end
+	// redundant tag
+	queryString6 := "SELECT index FROM h2o_quality WHERE location='coyote_creek' AND time >= '2019-08-18T02:40:00Z' AND time <= '2019-08-18T03:00:00Z' GROUP BY randtag"
+	//name: h2o_quality
+	//tags: randtag=1
+	//time                index
+	//----                -----
+	//1566096480000000000 15
+	//
+	//name: h2o_quality
+	//tags: randtag=3
+	//time                index
+	//----                -----
+	//1566096120000000000 86
+	//1566096840000000000 95
+	//1566097200000000000 37
+	queryString7 := "SELECT index FROM h2o_quality WHERE location='coyote_creek' AND time >= '2019-08-18T03:00:00Z' AND time <= '2019-08-18T04:00:00Z' GROUP BY location,randtag"
+	//name: h2o_quality
+	//tags: location=coyote_creek, randtag=1
+	//time                index
+	//----                -----
+	//1566097920000000000 90
+	//1566098280000000000 41
+	//1566100080000000000 43
+	//
+	//name: h2o_quality
+	//tags: location=coyote_creek, randtag=2
+	//time                index
+	//----                -----
+	//1566099000000000000 70
+	//1566099360000000000 5
+	//1566099720000000000 77
+	//
+	//name: h2o_quality
+	//tags: location=coyote_creek, randtag=3
+	//time                index
+	//----                -----
+	//1566097200000000000 37
+	//1566097560000000000 13
+	//1566098640000000000 22
+	//1566100440000000000 73
+	//1566100800000000000 57
+
+	queryString8 := "SELECT index FROM h2o_quality WHERE randtag='1' AND time >= '2019-08-18T02:00:00Z' AND time <= '2019-08-18T02:40:00Z' GROUP BY location"
+	queryString9 := "SELECT index FROM h2o_quality WHERE randtag='1' AND time >= '2019-08-18T02:40:00Z' AND time <= '2019-08-18T03:00:00Z' GROUP BY location,randtag"
+
 	tests := []struct {
 		name     string
 		querys   []string
@@ -3691,6 +3745,19 @@ func TestMergeSeries2(t *testing.T) {
 				"location=santa_monica randtag=1 \r\n" +
 				"location=santa_monica randtag=2 \r\n" +
 				"location=santa_monica randtag=3 \r\n",
+		},
+		{
+			name:   " 6 7 ",
+			querys: []string{queryString6, queryString7},
+			expected: "randtag=1 \r\n" +
+				"randtag=2 \r\n" +
+				"randtag=3 \r\n",
+		},
+		{
+			name:   " 8 9 ",
+			querys: []string{queryString8, queryString9},
+			expected: "location=coyote_creek \r\n" +
+				"location=santa_monica \r\n",
 		},
 	}
 
@@ -3784,7 +3851,6 @@ func TestResponse_ToByteArray(t *testing.T) {
 	// 2019-08-18T00:30:00Z 75
 }
 
-// 数据太多导致测试运行可能不通过，可以多试几次，或者去掉导致问题的测试用例（已经注释掉了）
 func TestByteArrayToResponse(t *testing.T) {
 
 	tests := []struct {
@@ -3795,7 +3861,7 @@ func TestByteArrayToResponse(t *testing.T) {
 		{
 			name:        "one table three columns",
 			queryString: "SELECT randtag,index FROM h2o_quality limit 5",
-			expected: "{(h2o_quality.empty_tag)}#{time[int64],randtag[string],index[int64]}#{empty}#{empty,empty} [0 0 0 0 0 0 0 205]\r\n" +
+			expected: "{(h2o_quality.empty)}#{randtag[string],index[int64]}#{empty}#{empty,empty} [0 0 0 0 0 0 0 205]\r\n" +
 				"[1566000000000000000 1 41]\r\n" +
 				"[1566000000000000000 2 99]\r\n" +
 				"[1566000360000000000 3 11]\r\n" +
@@ -3805,17 +3871,17 @@ func TestByteArrayToResponse(t *testing.T) {
 		{
 			name:        "one table four columns",
 			queryString: "SELECT randtag,index,location FROM h2o_quality limit 5",
-			expected: "{(h2o_quality.empty_tag)}#{time[int64],randtag[string],index[int64],location[string]}#{empty}#{empty,empty} [0 0 0 0 0 0 1 74]\r\n" +
+			expected: "{(h2o_quality.empty_tag)}#{randtag[string],index[int64],location[string]}#{empty}#{empty,empty} [0 0 0 0 0 0 1 74]\r\n" +
 				"[1566000000000000000 1 41 coyote_creek]\r\n" +
 				"[1566000000000000000 2 99 santa_monica]\r\n" +
 				"[1566000360000000000 3 11 coyote_creek]\r\n" +
 				"[1566000360000000000 2 56 santa_monica]\r\n" +
 				"[1566000720000000000 3 65 santa_monica]\r\n",
 		},
-		{ // Get() 的最大字节数限制 ?	和字节数无关，只能读取最多 64 条数据（怎么会和数据条数相关 ?）
+		{ // 	在由字节数组转换为结果类型时，谓词中的tag会被错误当作GROUP BY tag; 要用谓词tag的话最好把它也写进GROUP BY tag，这样就能保证转换前后结果的结构一致
 			name:        "one table two columns",
-			queryString: "SELECT index,location FROM h2o_quality WHERE location='coyote_creek' AND  time >= '2019-08-18T00:00:00Z' limit 65",
-			expected: "{(h2o_quality.empty_tag)}#{time[int64],index[int64]}#{(location='coyote_creek'[string])}#{empty,empty} [0 0 0 0 0 0 4 0]\r\n" +
+			queryString: "SELECT index,location FROM h2o_quality WHERE location='coyote_creek' AND  time >= '2019-08-18T00:00:00Z' GROUP BY location limit 5",
+			expected: "{(h2o_quality.location=coyote_creek)}#{index[int64],location[string]}#{empty}#{empty,empty} [0 0 0 0 0 0 4 0]\r\n" +
 				"[1566086400000000000 85]\r\n" +
 				"[1566086760000000000 66]\r\n" +
 				"......(共64条数据)",
@@ -3830,46 +3896,46 @@ func TestByteArrayToResponse(t *testing.T) {
 		//},
 		{
 			name:        "three tables two columns",
-			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag",
-			expected: "{(h2o_quality.randtag=1)}#{time[int64],index[int64]}#{(location='coyote_creek'[string])}#{empty,empty} [0 0 0 0 0 0 0 48]\r\n" +
+			queryString: "SELECT index FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag",
+			expected: "{(h2o_quality.randtag=1)}#{index[int64]}#{empty}#{empty,empty} [0 0 0 0 0 0 0 48]\r\n" +
 				"[1566086760000000000 66]\r\n" +
 				"[1566087480000000000 91]\r\n" +
 				"[1566087840000000000 29]\r\n" +
-				"{(h2o_quality.randtag=2)}#{time[int64],index[int64]}#{(location='coyote_creek'[string])}#{empty,empty} [0 0 0 0 0 0 0 16]\r\n" +
+				"{(h2o_quality.randtag=2)}#{index[int64]}#{empty}#{empty,empty} [0 0 0 0 0 0 0 16]\r\n" +
 				"[1566087120000000000 78]\r\n" +
-				"{(h2o_quality.randtag=3)}#{time[int64],index[int64]}#{(location='coyote_creek'[string])}#{empty,empty} [0 0 0 0 0 0 0 32]\r\n" +
+				"{(h2o_quality.randtag=3)}#{index[int64]}#{empty}#{empty,empty} [0 0 0 0 0 0 0 32]\r\n" +
 				"[1566086400000000000 85]\r\n" +
 				"[1566088200000000000 75]\r\n",
 		},
 		{ // length of key out of range(309 bytes) 不能超过250字节?
 			name:        "three tables four columns",
 			queryString: "SELECT index,location,randtag FROM h2o_quality WHERE location='coyote_creek' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag,location",
-			expected: "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=1)}#{time[int64],index[int64],location[string],randtag[string]}#{(location='coyote_creek'[string])}#{empty,empty} [0 0 0 0 0 0 0 198]\r\n" +
+			expected: "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=1)}#{index[int64],location[string],randtag[string]}#{empty}#{empty,empty} [0 0 0 0 0 0 0 198]\r\n" +
 				"[1566086760000000000 66 coyote_creek 1]\r\n" +
 				"[1566087480000000000 91 coyote_creek 1]\r\n" +
 				"[1566087840000000000 29 coyote_creek 1]\r\n" +
-				"{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)}#{time[int64],index[int64],location[string],randtag[string]}#{(location='coyote_creek'[string])}#{empty,empty} [0 0 0 0 0 0 0 66]\r\n" +
+				"{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)}#{index[int64],location[string],randtag[string]}#{empty}#{empty,empty} [0 0 0 0 0 0 0 66]\r\n" +
 				"[1566087120000000000 78 coyote_creek 2]\r\n" +
-				"{(h2o_quality.location=coyote_creek,h2o_quality.randtag=3)}#{time[int64],index[int64],location[string],randtag[string]}#{(location='coyote_creek'[string])}#{empty,empty} [0 0 0 0 0 0 0 132]\r\n" +
+				"{(h2o_quality.location=coyote_creek,h2o_quality.randtag=3)}#{index[int64],location[string],randtag[string]}#{empty}#{empty,empty} [0 0 0 0 0 0 0 132]\r\n" +
 				"[1566086400000000000 85 coyote_creek 3]\r\n" +
 				"[1566088200000000000 75 coyote_creek 3]\r\n",
 		},
 		{
 			name:        "one table four columns",
 			queryString: "SELECT index,location,randtag FROM h2o_quality WHERE location='coyote_creek' AND randtag='2' AND index>50 AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag,location",
-			expected: "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)}#{time[int64],index[int64],location[string],randtag[string]}#{(location='coyote_creek'[string])(randtag='2'[string])(index>50[int64])}#{empty,empty} [0 0 0 0 0 0 0 66]\r\n" +
+			expected: "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)}#{index[int64],location[string],randtag[string]}#{(randtag='2'[string])(index>50[int64])}#{empty,empty} [0 0 0 0 0 0 0 66]\r\n" +
 				"[1566087120000000000 78 coyote_creek 2]\r\n",
 		},
 		{
 			name:        "two tables four columns",
 			queryString: "SELECT index,location,randtag FROM h2o_quality WHERE location='coyote_creek' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag,location",
-			expected: "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=1)}#{time[int64],index[int64],location[string],randtag[string]}#{(location='coyote_creek'[string])}#{empty,empty} [0 0 0 0 0 0 0 198]\r\n" +
+			expected: "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=1)}#{index[int64],location[string],randtag[string]}#{empty}#{empty,empty} [0 0 0 0 0 0 0 198]\r\n" +
 				"[1566086760000000000 66 coyote_creek 1]\r\n" +
 				"[1566087480000000000 91 coyote_creek 1]\r\n" +
 				"[1566087840000000000 29 coyote_creek 1]\r\n" +
-				"{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)}#{time[int64],index[int64],location[string],randtag[string]}#{(location='coyote_creek'[string])}#{empty,empty} [0 0 0 0 0 0 0 66]\r\n" +
+				"{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)}#{index[int64],location[string],randtag[string]}#{empty}#{empty,empty} [0 0 0 0 0 0 0 66]\r\n" +
 				"[1566087120000000000 78 coyote_creek 2]\r\n" +
-				"{(h2o_quality.location=coyote_creek,h2o_quality.randtag=3)}#{time[int64],index[int64],location[string],randtag[string]}#{(location='coyote_creek'[string])}#{empty,empty} [0 0 0 0 0 0 0 132]\r\n" +
+				"{(h2o_quality.location=coyote_creek,h2o_quality.randtag=3)}#{index[int64],location[string],randtag[string]}#{empty}#{empty,empty} [0 0 0 0 0 0 0 132]\r\n" +
 				"[1566086400000000000 85 coyote_creek 3]\r\n" +
 				"[1566088200000000000 75 coyote_creek 3]\r\n",
 		},
@@ -3916,8 +3982,8 @@ func TestByteArrayToResponse(t *testing.T) {
 
 			fmt.Println("resp:\n", *resp)
 			fmt.Println("resp converted:\n", *respConverted)
-			//fmt.Println("resp:\n", resp.ToString())
-			//fmt.Println("resp converted:\n", respConverted.ToString())
+			fmt.Println("resp:\n", resp.ToString())
+			fmt.Println("resp converted:\n", respConverted.ToString())
 			fmt.Println()
 			fmt.Println()
 		})

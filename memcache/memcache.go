@@ -716,7 +716,7 @@ func (c *Client) populateOne(rw *bufio.ReadWriter, verb string, item *Item) erro
 	} else { //   set
 
 		//_, err = fmt.Fprintf(rw, "%s %s %d %d %d\r\n", //用item的基本信息构建命令的第一行，存入rw buffer	如：set user 0 0 3
-		//	verb, item.Key, len(item.Value), item.Time_start, item.Time_end) // set key len st et	memcache的set格式暂时是这样
+		//	verb, item.Key, len(item.Value), item.Time_start, item.Time_end) // set key len st et	fatcache的set格式暂时是这样
 		_, err = fmt.Fprintf(rw, "%s %s %d %d %d\r\n",
 			verb, item.Key, item.Time_start, item.Time_end, item.NumOfTables) //最终格式是这样的（大概），最后一个参数是结果中表的数量
 	}
