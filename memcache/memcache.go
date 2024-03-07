@@ -719,6 +719,10 @@ func (c *Client) populateOne(rw *bufio.ReadWriter, verb string, item *Item) erro
 		//	verb, item.Key, len(item.Value), item.Time_start, item.Time_end) // set key len st et	fatcache的set格式暂时是这样
 		_, err = fmt.Fprintf(rw, "%s %s %d %d %d\r\n",
 			verb, item.Key, item.Time_start, item.Time_end, item.NumOfTables) //最终格式是这样的（大概），最后一个参数是结果中表的数量
+
+		//fmt.Printf("%s %s %d %d %d\r\n",
+		//	verb, item.Key, item.Time_start, item.Time_end, item.NumOfTables)
+		//fmt.Printf("%b", item.Value)
 	}
 	if err != nil {
 		return err

@@ -2517,9 +2517,10 @@ func BytesPerLine(datatypes []string) int {
 	return bytesPerLine
 }
 
+// todo 小端序
 func BoolToByteArray(b bool) ([]byte, error) {
 	bytesBuffer := bytes.NewBuffer([]byte{})
-	err := binary.Write(bytesBuffer, binary.BigEndian, &b)
+	err := binary.Write(bytesBuffer, binary.LittleEndian, &b)
 	if err != nil {
 		return nil, err
 	}
@@ -2532,7 +2533,7 @@ func ByteArrayToBool(byteArray []byte) (bool, error) {
 	}
 	var b bool
 	byteBuffer := bytes.NewBuffer(byteArray)
-	err := binary.Read(byteBuffer, binary.BigEndian, &b)
+	err := binary.Read(byteBuffer, binary.LittleEndian, &b)
 	if err != nil {
 		return false, err
 	}
@@ -2554,14 +2555,14 @@ func StringToByteArray(str string) []byte {
 }
 
 func ByteArrayToString(byteArray []byte) string {
-	byteArray = bytes.Trim(byteArray, string(byte(0)))
+	//byteArray = bytes.Trim(byteArray, string(byte(0)))
 	str := string(byteArray)
 	return str
 }
 
 func Int64ToByteArray(number int64) ([]byte, error) {
 	byteBuffer := bytes.NewBuffer([]byte{})
-	err := binary.Write(byteBuffer, binary.BigEndian, &number)
+	err := binary.Write(byteBuffer, binary.LittleEndian, &number)
 	if err != nil {
 		return nil, err
 	}
@@ -2574,7 +2575,7 @@ func ByteArrayToInt64(byteArray []byte) (int64, error) {
 	}
 	var number int64
 	byteBuffer := bytes.NewBuffer(byteArray)
-	err := binary.Read(byteBuffer, binary.BigEndian, &number)
+	err := binary.Read(byteBuffer, binary.LittleEndian, &number)
 	if err != nil {
 		return 0, err
 	}
@@ -2583,7 +2584,7 @@ func ByteArrayToInt64(byteArray []byte) (int64, error) {
 
 func Float64ToByteArray(number float64) ([]byte, error) {
 	byteBuffer := bytes.NewBuffer([]byte{})
-	err := binary.Write(byteBuffer, binary.BigEndian, &number)
+	err := binary.Write(byteBuffer, binary.LittleEndian, &number)
 	if err != nil {
 		return nil, err
 	}
@@ -2596,7 +2597,7 @@ func ByteArrayToFloat64(byteArray []byte) (float64, error) {
 	}
 	var number float64
 	byteBuffer := bytes.NewBuffer(byteArray)
-	err := binary.Read(byteBuffer, binary.BigEndian, &number)
+	err := binary.Read(byteBuffer, binary.LittleEndian, &number)
 	if err != nil {
 		return 0.0, err
 	}
@@ -2621,9 +2622,9 @@ func TimeInt64ToString(number int64) string {
 // todo :
 // lists:
 
-// todo 整合Set()函数
+// done 整合Set()函数
 
-// todo 在工作站上安装InfluxDB1.8，下载样例数据库
+// done 在工作站上安装InfluxDB1.8，下载样例数据库
 
 /* 详见 client_test.go 最后的说明 */
 // done : 修改 semantic segment ,去掉所有的时间范围 ST	，修改测试代码中所有包含时间范围的部分

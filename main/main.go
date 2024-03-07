@@ -226,43 +226,50 @@ func main() {
 
 	//fmt.Println(time.Hour.Nanoseconds())
 
-	queryMemcache := "SELECT randtag,index FROM h2o_quality limit 5"
+	queryMemcache := "SELECT randtag,index,location FROM h2o_quality GROUP BY location limit 3"
 	qm := client.NewQuery(queryMemcache, MyDB, "ns")
 	respCache, _ := c.Query(qm)
+	start_time, end_time := client.GetResponseTimeRange(respCache)
+	numOfTab := int64(len(respCache.Results[0].Series))
 
 	semanticSegment := client.SemanticSegment(queryMemcache, respCache)
 	respCacheByte := respCache.ToByteArray(queryMemcache)
 	fmt.Printf("byte array:\n%d\n\n", respCacheByte)
 
+	//for _, i := range respCache.Results[0].Series[0].Values {
+	//	num, _ := i[0].(json.Number).Int64()
+	//	fmt.Println(client.Int64ToByteArray(num))
+	//}
 	var str string
 	str = respCache.ToString()
 	fmt.Printf("To be set:\n%s\n\n", str)
-	mc := memcache.New("localhost:11213")
-	// 在缓存中设置值
+	mc := memcache.New("localhost:11214")
 
-	//err = mc.Set(&memcache.Item{Key: "mykey", Value: []byte(str), Time_start: 134123, Time_end: 53421432123})
-	err = mc.Set(&memcache.Item{Key: semanticSegment, Value: respCacheByte, Time_start: 134123, Time_end: 53421432123, NumOfTables: 1})
+	// 在缓存中存入值
+	err = mc.Set(&memcache.Item{Key: semanticSegment, Value: respCacheByte, Time_start: start_time, Time_end: end_time, NumOfTables: numOfTab})
 
 	if err != nil {
 		log.Fatalf("Error setting value: %v", err)
+	} else {
+		log.Printf("STORED.")
 	}
 
 	// 从缓存中获取值
-	itemValues, _, err := mc.Get(semanticSegment, 10, 20)
+	itemValues, _, err := mc.Get(semanticSegment, start_time, end_time)
 	if err == memcache.ErrCacheMiss {
 		log.Printf("Key not found in cache")
 	} else if err != nil {
 		log.Fatalf("Error getting value: %v", err)
 	} else {
-		//log.Printf("Value: %s", item.Value)
+		log.Printf("GET.")
 	}
 
 	fmt.Println("len:", len(itemValues))
 	fmt.Printf("Get:\n")
 	fmt.Printf("%d", itemValues)
 
-	fmt.Printf("\nequal:%v\n", bytes.Equal(respCacheByte, itemValues[:len(itemValues)-2]))
-
+	//fmt.Printf("\nequal:%v\n", bytes.Equal(respCacheByte, itemValues[:len(itemValues)-2]))
+	//
 	respConverted := client.ByteArrayToResponse(itemValues)
 	respConvertedStr := respConverted.ToString()
 	respConvertedByteArray := respConverted.ToByteArray(queryMemcache)
@@ -275,13 +282,13 @@ func main() {
 	fmt.Println("\ncompare byte array before and after convert:", compare)
 	fmt.Println("\nrespCache:\t", *respCache)
 	fmt.Println("\nrespConverted:\t", *respConverted)
-	fmt.Println("\ncompare:\t", respCache.ToString() == respConverted.ToString())
+	//fmt.Println("\ncompare:\t", respCache.ToString() == respConverted.ToString())
 
 	fmt.Println()
 
 	// 在缓存中删除值
-	err = mc.Delete(semanticSegment)
-	if err != nil {
-		log.Fatalf("Error deleting value: %v", err)
-	}
+	//err = mc.Delete(semanticSegment)
+	//if err != nil {
+	//	log.Fatalf("Error deleting value: %v", err)
+	//}
 }
