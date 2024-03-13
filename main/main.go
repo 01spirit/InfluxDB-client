@@ -318,7 +318,7 @@ func main() {
 	//fmt.Println("\ncompare:\t", respCache.ToString() == respConverted.ToString())
 
 	fmt.Println()
-
+	fmt.Println()
 	// 在缓存中删除值
 	//err = mc.Delete(semanticSegment)
 	//if err != nil {
