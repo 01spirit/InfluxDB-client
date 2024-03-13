@@ -4275,6 +4275,85 @@ func TestTimeInt64ToString(t *testing.T) {
 	}
 }
 
+func TestTSDBParameter(t *testing.T) {
+	tests := []struct {
+		name        string
+		queryString string
+		expected    string
+	}{
+		{
+			name:        "1",
+			queryString: "SELECT index,randtag FROM h2o_quality GROUP BY location limit 5",
+			expected: "" +
+				"(h2o_quality.location=coyote_creek)time[int64] 40" +
+				"1566000000000000000 1566000360000000000 1566000720000000000 1566001080000000000 1566001440000000000 " +
+				"(h2o_quality.location=coyote_creek)index[int64] 40" +
+				"41 11 38 50 35 " +
+				"(h2o_quality.location=coyote_creek)randtag[string] 125" +
+				"1 3 1 1 3 " +
+				"(h2o_quality.location=santa_monica)time[int64] 40" +
+				"1566000000000000000 1566000360000000000 1566000720000000000 1566001080000000000 1566001440000000000 " +
+				"(h2o_quality.location=santa_monica)index[int64] 40" +
+				"99 56 65 57 8 " +
+				"(h2o_quality.location=santa_monica)randtag[string] 125" +
+				"2 2 3 3 3 ",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			query := NewQuery(tt.queryString, MyDB, "ns")
+			resp, err := c.Query(query)
+			if err != nil {
+				fmt.Println(err)
+			}
+			datatypes := DataTypeArrayFromResponse(resp)
+
+			tag_field, field_len, field_value := TSDBParameter(resp)
+
+			//table_num := len(tag_field)
+			column_num := len(tag_field[0])
+			arg1 := make([]string, 0)
+			for i := range tag_field { // 子表数量
+				for j := range tag_field[i] { // 列数量
+					//fmt.Printf("%s %d\n", tag_field[i][j], field_len[i][j])
+					str := fmt.Sprintf("%s %d", tag_field[i][j], field_len[i][j])
+					arg1 = append(arg1, str)
+				}
+			}
+
+			for i := range arg1 {
+				fmt.Println(arg1[i])
+				for _, value := range field_value[i] {
+					switch datatypes[i%column_num] { // 每列数据的数据类型
+					case "string":
+						tmp_string := ByteArrayToString(value)
+						fmt.Printf("%s ", tmp_string)
+
+						break
+					case "int64":
+						tmp_int, _ := ByteArrayToInt64(value)
+						fmt.Printf("%d ", tmp_int)
+
+						break
+
+					case "float64":
+						tmp_float, _ := ByteArrayToFloat64(value)
+						fmt.Printf("%f ", tmp_float)
+
+						break
+					default:
+						tmp_bool, _ := ByteArrayToBool(value)
+						fmt.Printf("%v ", tmp_bool)
+					}
+				}
+				fmt.Println()
+			}
+
+		})
+	}
+}
+
 // done 根据查询时向 client.Query() 传入的时间的参数不同，会返回string和int64的不同类型的时间戳
 /*
 	暂时把cache传回的字节数组只处理成int64

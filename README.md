@@ -193,7 +193,7 @@ _, err = fmt.Fprintf(rw, "%s %s %d %d %d\r\n", //用item的基本信息构建命
 
 ​													Values{		  	[] [] interface{}
 
-​																		value[0]
+​																		field_value[0]
 
 ​																		......
 

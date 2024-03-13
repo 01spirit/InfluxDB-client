@@ -2134,7 +2134,7 @@ func (resp *Response) ToByteArray(queryString string) []byte {
 		result = append(result, []byte(seperateSemanticSegment[i])...)
 		result = append(result, []byte(" ")...)
 		result = append(result, bytesPerSeries...)
-		//result = append(result, []byte("\r\n")...) // 是否需要换行	没啥必要，看看去掉了有什么影响 //todo 去掉元数据的这个换行符 从字节数组转换回来也要改
+		//result = append(result, []byte("\r\n")...) // 是否需要换行	没啥必要，看看去掉了有什么影响
 
 		//fmt.Printf("%s %d\r\n", seperateSemanticSegment[i], bytesPerSeries)
 
@@ -2240,7 +2240,7 @@ func ByteArrayToResponse(byteArray []byte) *Response {
 				switch d { // 根据每列的数据类型选择转换方法
 				case "bool":
 					bStartIdx := index
-					index += 2 //	索引指向当前数据的后一个字节
+					index += 1 //	索引指向当前数据的后一个字节
 					bEndIdx := index
 					tmp, err := ByteArrayToBool(byteArray[bStartIdx:bEndIdx])
 					if err != nil {
@@ -2294,7 +2294,7 @@ func ByteArrayToResponse(byteArray []byte) *Response {
 			values = append(values, value) // 存放一张表的每一行数据
 
 			/* 如果cache传回的数据之间不需要换行符，把这一行注释掉 */
-			index += 2 // 跳过每行数据之间的换行符CRLF，处理下一行数据
+			//index += 2 // 跳过每行数据之间的换行符CRLF，处理下一行数据
 		}
 		valuess = append(valuess, values)
 	}
@@ -2555,7 +2555,7 @@ func StringToByteArray(str string) []byte {
 }
 
 func ByteArrayToString(byteArray []byte) string {
-	//byteArray = bytes.Trim(byteArray, string(byte(0)))
+	byteArray = bytes.Trim(byteArray, string(byte(0)))
 	str := string(byteArray)
 	return str
 }
@@ -2617,6 +2617,99 @@ func TimeInt64ToString(number int64) string {
 	timestamp := t.Format(time.RFC3339)
 
 	return timestamp
+}
+
+//func TSDBByteToValue(byteArray []byte) *Response {
+//
+//}
+
+func TSDBValueToByte(resp *Response) []byte {
+	result := make([]byte, 0)
+
+	/* 结果为空 */
+	if ResponseIsEmpty(resp) {
+		return StringToByteArray("empty response")
+	}
+
+	//datatypes := DataTypeArrayFromResponse(resp)
+
+	/* 列名、数据长度、具体数据 */
+	tag_field, field_len, field_value := TSDBParameter(resp)
+
+	// 子表数量、列的数量
+	//table_num := len(tag_field)
+	column_num := len(tag_field[0])
+
+	// 存入字节数组
+	for i := range field_value {
+		col_len, _ := Int64ToByteArray(field_len[i/column_num][i%column_num])
+		result = append(result, []byte(tag_field[i/column_num][i%column_num])...) // 列名
+		result = append(result, []byte(" ")...)                                   // 空格
+		result = append(result, col_len...)                                       // 数据长度
+
+		/* 数据 */
+		for j := range field_value[i] {
+			result = append(result, field_value[i][j]...)
+		}
+
+	}
+
+	return result
+}
+
+func TSDBParameter(resp *Response) ([][]string, [][]int64, [][][]byte) {
+	var tag_value []string     // 每张子表的所有 tag 的值连接成字符串
+	var tag_field [][]string   // 每张子表的多个列，每个列的列名和 tag 连接成字符串
+	var field_len [][]int64    // 每张子表的每个列的数据的长度
+	var field_value [][][]byte // 每张子表的每个列的数据的数组
+
+	if ResponseIsEmpty(resp) {
+		return nil, nil, nil
+	}
+
+	data_len := make(map[string]int) // 每列的数据类型对应的字节长度
+	data_len = map[string]int{"int64": 8, "float64": 8, "string": 25, "bool": 1}
+	datatype := DataTypeArrayFromResponse(resp) // 每一列的数据类型
+	tags := GetTagNameArr(resp)                 // 结果中的所有 tag 的名称
+	measurement_name := resp.Results[0].Series[0].Name
+	for r := range resp.Results {
+		for s := range resp.Results[r].Series { // 结果中的每张子表
+			// 一张子表的所有 tag 的值
+			tmp_tag_value := fmt.Sprintf("%s.", measurement_name)
+			for t, tag := range tags { // 一张子表的所有 tag 的值
+				tmp_tag_value += fmt.Sprintf("%s=%s,", tags[t], resp.Results[r].Series[s].Tags[tag])
+			}
+			tag_value = append(tag_value, tmp_tag_value[:len(tmp_tag_value)-1])
+
+			tfld := make([]string, 0)
+			fldl := make([]int64, 0)
+
+			row_num := len(resp.Results[r].Series[s].Values)   // 每张子表的数据行数
+			for c := range resp.Results[r].Series[s].Columns { // 每张子表的每个列
+				// 每列的列名连接成字符串
+				tmp_tag_field := ""
+				tmp_tag_field = fmt.Sprintf("(%s)%s[%s]", tag_value[s], resp.Results[r].Series[s].Columns[c], datatype[c])
+				tfld = append(tfld, tmp_tag_field)
+
+				// 每张子表的每个列的数据的总字节数
+				tmp_field_len := 0
+				tmp_field_len = data_len[datatype[c]] * row_num
+				fldl = append(fldl, int64(tmp_field_len))
+
+				// 每张子表的每个列的数据的数组
+				fldv := make([][]byte, 0)
+				for _, values := range resp.Results[r].Series[s].Values {
+					tmp_value_byte := InterfaceToByteArray(c, datatype[c], values[c])
+					fldv = append(fldv, tmp_value_byte)
+				}
+				field_value = append(field_value, fldv)
+			}
+			tag_field = append(tag_field, tfld)
+			field_len = append(field_len, fldl)
+		}
+	}
+
+	return tag_field, field_len, field_value
 }
 
 // todo :
