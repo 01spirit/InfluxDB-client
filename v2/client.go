@@ -2294,7 +2294,7 @@ func ByteArrayToResponse(byteArray []byte) *Response {
 			values = append(values, value) // 存放一张表的每一行数据
 
 			/* 如果cache传回的数据之间不需要换行符，把这一行注释掉 */
-			index += 2 // 跳过每行数据之间的换行符CRLF，处理下一行数据
+			//index += 2 // 跳过每行数据之间的换行符CRLF，处理下一行数据
 		}
 		valuess = append(valuess, values)
 	}

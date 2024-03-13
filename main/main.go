@@ -226,14 +226,14 @@ func main() {
 
 	//fmt.Println(time.Hour.Nanoseconds())
 
-	queryMemcache := "SELECT randtag,index,location FROM h2o_quality GROUP BY location limit 90"
+	//queryMemcache := "SELECT randtag,index,location FROM h2o_quality GROUP BY location,randtag"
+	queryMemcache := "SELECT * FROM h2o_quality"
 	qm := client.NewQuery(queryMemcache, MyDB, "ns")
 	respCache, _ := c.Query(qm)
 	start_time, end_time := client.GetResponseTimeRange(respCache)
 	numOfTab := int64(len(respCache.Results[0].Series))
 
 	semanticSegment := client.SemanticSegment(queryMemcache, respCache)
-	single_seg := client.SeperateSemanticSegment(queryMemcache, respCache)
 	respCacheByte := respCache.ToByteArray(queryMemcache)
 	fmt.Printf("byte array:\n%d\n\n", respCacheByte)
 
@@ -255,38 +255,66 @@ func main() {
 		log.Printf("STORED.")
 	}
 
-	// 从缓存中获取值
-	//itemValues, _, err := mc.Get(semanticSegment, start_time, end_time)
-
-	for i := range single_seg {
-		itemValues, _, err := mc.Get(single_seg[i], start_time, end_time)
-		if err == memcache.ErrCacheMiss {
-			log.Printf("Key not found in cache")
-		} else if err != nil {
-			log.Fatalf("Error getting value: %v", err)
-		} else {
-			log.Printf("GET.")
-		}
-
-		fmt.Println("len:", len(itemValues))
-		fmt.Printf("Get:\n")
-		fmt.Printf("%d", itemValues)
-
-		//fmt.Printf("\nequal:%v\n", bytes.Equal(respCacheByte, itemValues[:len(itemValues)-2]))
-		//
-		respConverted := client.ByteArrayToResponse(itemValues)
-		respConvertedStr := respConverted.ToString()
-		respConvertedByteArray := respConverted.ToByteArray(queryMemcache)
-
-		fmt.Println("\nconvert byte array to response string:")
-		fmt.Println(respConvertedStr)
-		fmt.Println("\nconvert byte array to response byte array:")
-		fmt.Println(respConvertedByteArray)
-		compare := bytes.Equal(respCacheByte, respConvertedByteArray)
-		fmt.Println("\ncompare byte array before and after convert:", compare)
-		fmt.Println("\nrespCache:\t", *respCache)
-		fmt.Println("\nrespConverted:\t", *respConverted)
+	// Get 一次查询多表
+	itemValues, _, err := mc.Get(semanticSegment, start_time, end_time)
+	if err == memcache.ErrCacheMiss {
+		log.Printf("Key not found in cache")
+	} else if err != nil {
+		log.Fatalf("Error getting value: %v", err)
+	} else {
+		log.Printf("GET.")
 	}
+
+	fmt.Printf("Get:\n")
+	fmt.Printf("%d", itemValues)
+
+	//fmt.Printf("\nequal:%v\n", bytes.Equal(respCacheByte, itemValues[:len(itemValues)-2]))
+	//
+	respConverted := client.ByteArrayToResponse(itemValues)
+	respConvertedStr := respConverted.ToString()
+	respConvertedByteArray := respConverted.ToByteArray(queryMemcache)
+
+	fmt.Println("\nconvert byte array to response string:")
+	fmt.Println(respConvertedStr)
+	fmt.Println("\nconvert byte array to response byte array:")
+	fmt.Println(respConvertedByteArray)
+	fmt.Println("\nrespCache:\t", *respCache)
+	fmt.Println("\nrespConverted:\t", *respConverted)
+	fmt.Println("len:", len(itemValues))
+	compare := bytes.Equal(respCacheByte, respConvertedByteArray)
+	fmt.Println("\ncompare byte array before and after convert:", compare)
+
+	// Get 一次查询单表
+	//single_seg := client.SeperateSemanticSegment(queryMemcache, respCache)
+	//for i := range single_seg {
+	//	itemValues, _, err := mc.Get(single_seg[i], start_time, end_time)
+	//	if err == memcache.ErrCacheMiss {
+	//		log.Printf("Key not found in cache")
+	//	} else if err != nil {
+	//		log.Fatalf("Error getting value: %v", err)
+	//	} else {
+	//		log.Printf("GET.")
+	//	}
+	//
+	//	fmt.Println("len:", len(itemValues))
+	//	fmt.Printf("Get:\n")
+	//	fmt.Printf("%d", itemValues)
+	//
+	//	//fmt.Printf("\nequal:%v\n", bytes.Equal(respCacheByte, itemValues[:len(itemValues)-2]))
+	//	//
+	//	respConverted := client.ByteArrayToResponse(itemValues)
+	//	respConvertedStr := respConverted.ToString()
+	//	respConvertedByteArray := respConverted.ToByteArray(queryMemcache)
+	//
+	//	fmt.Println("\nconvert byte array to response string:")
+	//	fmt.Println(respConvertedStr)
+	//	fmt.Println("\nconvert byte array to response byte array:")
+	//	fmt.Println(respConvertedByteArray)
+	//	compare := bytes.Equal(respCacheByte, respConvertedByteArray)
+	//	fmt.Println("\ncompare byte array before and after convert:", compare)
+	//	fmt.Println("\nrespCache:\t", *respCache)
+	//	fmt.Println("\nrespConverted:\t", *respConverted)
+	//}
 
 	//itemValues, _, err := mc.Get(single_seg[0], start_time, end_time)
 	//if err == memcache.ErrCacheMiss {
