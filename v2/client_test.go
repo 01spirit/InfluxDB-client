@@ -4275,7 +4275,7 @@ func TestTimeInt64ToString(t *testing.T) {
 	}
 }
 
-func TestTSDBParameter(t *testing.T) {
+func TestTSCacheParameter(t *testing.T) {
 	tests := []struct {
 		name        string
 		queryString string
@@ -4285,17 +4285,17 @@ func TestTSDBParameter(t *testing.T) {
 			name:        "1",
 			queryString: "SELECT index,randtag FROM h2o_quality GROUP BY location limit 5",
 			expected: "" +
-				"(h2o_quality.location=coyote_creek)time[int64] 40" +
+				"(h2o_quality.location=coyote_creek).time[int64] 40" +
 				"1566000000000000000 1566000360000000000 1566000720000000000 1566001080000000000 1566001440000000000 " +
-				"(h2o_quality.location=coyote_creek)index[int64] 40" +
+				"(h2o_quality.location=coyote_creek).index[int64] 40" +
 				"41 11 38 50 35 " +
-				"(h2o_quality.location=coyote_creek)randtag[string] 125" +
+				"(h2o_quality.location=coyote_creek).randtag[string] 125" +
 				"1 3 1 1 3 " +
-				"(h2o_quality.location=santa_monica)time[int64] 40" +
+				"(h2o_quality.location=santa_monica).time[int64] 40" +
 				"1566000000000000000 1566000360000000000 1566000720000000000 1566001080000000000 1566001440000000000 " +
-				"(h2o_quality.location=santa_monica)index[int64] 40" +
+				"(h2o_quality.location=santa_monica).index[int64] 40" +
 				"99 56 65 57 8 " +
-				"(h2o_quality.location=santa_monica)randtag[string] 125" +
+				"(h2o_quality.location=santa_monica).randtag[string] 125" +
 				"2 2 3 3 3 ",
 		},
 	}
@@ -4309,7 +4309,7 @@ func TestTSDBParameter(t *testing.T) {
 			}
 			datatypes := DataTypeArrayFromResponse(resp)
 
-			tag_field, field_len, field_value := TSDBParameter(resp)
+			tag_field, field_len, field_value := TSCacheParameter(resp)
 
 			//table_num := len(tag_field)
 			column_num := len(tag_field[0])
@@ -4350,6 +4350,189 @@ func TestTSDBParameter(t *testing.T) {
 				fmt.Println()
 			}
 
+		})
+	}
+}
+
+func TestTSCacheByteToValue(t *testing.T) {
+	tests := []struct {
+		name        string
+		queryString string
+		exected     string
+	}{
+		{
+			name:        "1",
+			queryString: "SELECT index,randtag FROM h2o_quality GROUP BY location limit 5",
+			exected: "SCHEMA time index randtag location=coyote_creek " +
+				"1566000000000000000 41 1 " +
+				"1566000360000000000 11 3 " +
+				"1566000720000000000 38 1 " +
+				"1566001080000000000 50 1 " +
+				"1566001440000000000 35 3 " +
+				"SCHEMA time index randtag location=santa_monica " +
+				"1566000000000000000 99 2 " +
+				"1566000360000000000 56 2 " +
+				"1566000720000000000 65 3 " +
+				"1566001080000000000 57 3 " +
+				"1566001440000000000 8 3 " +
+				"end",
+		},
+		{
+			name:        "2",
+			queryString: "SELECT index,randtag FROM h2o_quality GROUP BY location,randtag limit 5",
+			exected: "SCHEMA time index randtag location=coyote_creek randtag=1 " +
+				"1566000000000000000 41 1 " +
+				"1566000720000000000 38 1 " +
+				"1566001080000000000 50 1 " +
+				"1566002160000000000 24 1 " +
+				"1566004320000000000 94 1 " +
+				"SCHEMA time index randtag location=coyote_creek randtag=2 " +
+				"1566001800000000000 49 2 " +
+				"1566003240000000000 32 2 " +
+				"1566003960000000000 50 2 " +
+				"1566005040000000000 90 2 " +
+				"1566007200000000000 44 2 " +
+				"SCHEMA time index randtag location=coyote_creek randtag=3 " +
+				"1566000360000000000 11 3 " +
+				"1566001440000000000 35 3 " +
+				"1566002520000000000 92 3 " +
+				"1566002880000000000 56 3 " +
+				"1566003600000000000 68 3 " +
+				"SCHEMA time index randtag location=santa_monica randtag=1 " +
+				"1566004680000000000 9 1 " +
+				"1566006120000000000 49 1 " +
+				"1566006840000000000 4 1 " +
+				"1566007200000000000 39 1 " +
+				"1566007560000000000 46 1 " +
+				"SCHEMA time index randtag location=santa_monica randtag=2 " +
+				"1566000000000000000 99 2 " +
+				"1566000360000000000 56 2 " +
+				"1566001800000000000 36 2 " +
+				"1566002160000000000 92 2 " +
+				"1566005400000000000 69 2 " +
+				"SCHEMA time index randtag location=santa_monica randtag=3 " +
+				"1566000720000000000 65 3 " +
+				"1566001080000000000 57 3 " +
+				"1566001440000000000 8 3 " +
+				"1566002520000000000 87 3 " +
+				"1566002880000000000 81 3 " +
+				"end",
+		},
+		{
+			name:        "3",
+			queryString: "SELECT index,randtag,location FROM h2o_quality GROUP BY location,randtag",
+			exected:     "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			query := NewQuery(tt.queryString, MyDB, "ns")
+			resp, err := c.Query(query)
+			if err != nil {
+				fmt.Println(err)
+			}
+
+			byteArray := TSCacheValueToByte(resp)
+			respConverted := TSCacheByteToValue(byteArray)
+
+			fmt.Printf("resp:\n%s\n", resp.ToString())
+			//fmt.Println(byteArray)
+			fmt.Printf("resp converted:\n%s\n", respConverted.ToString())
+
+			fmt.Println(*resp)
+			fmt.Println(*respConverted)
+
+			fmt.Println("\nbytes are equal:")
+			fmt.Println(bytes.Equal(resp.ToByteArray(tt.queryString), respConverted.ToByteArray(tt.queryString)))
+
+		})
+	}
+}
+
+func TestGetQueryTimeRange(t *testing.T) {
+	tests := []struct {
+		name        string
+		queryString string
+		expected    []int64
+	}{
+		{
+			name:        "1",
+			queryString: "SELECT index FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z'",
+			expected:    []int64{1566086400000000000, 1566088200000000000},
+		},
+		{
+			name:        "2",
+			queryString: "SELECT index FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z'",
+			expected:    []int64{1566086400000000000, -1},
+		},
+		{
+			name:        "3",
+			queryString: "SELECT index FROM h2o_quality WHERE time <= '2019-08-18T00:30:00Z'",
+			expected:    []int64{-1, 1566088200000000000},
+		},
+		{
+			name:        "4",
+			queryString: "SELECT index FROM h2o_quality WHERE time = '2019-08-18T00:00:00Z'",
+			expected:    []int64{1566086400000000000, 1566086400000000000},
+		},
+		{
+			name:        "5",
+			queryString: "SELECT index FROM h2o_quality",
+			expected:    []int64{-1, -1},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			startTime, endTime := GetQueryTimeRange(tt.queryString)
+
+			if startTime != tt.expected[0] || endTime != tt.expected[1] {
+				t.Errorf("start time:\t%d\n", startTime)
+				t.Errorf("expected:\t%d\n", tt.expected[0])
+				t.Errorf("end time:\t%d\n", endTime)
+				t.Errorf("expected:\t%d\n", tt.expected[1])
+			}
+
+		})
+	}
+}
+
+func TestTimeReplace(t *testing.T) {
+	tests := []struct {
+		name        string
+		queryString string
+		expected    string
+	}{
+		{
+			name:        "1",
+			queryString: "SELECT index FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z'",
+			expected:    "SELECT index FROM h2o_quality WHERE time >= ? AND time <= ?",
+		},
+		{
+			name:        "2",
+			queryString: "SELECT index FROM h2o_quality WHERE time <= '2019-08-18T00:30:00Z'",
+			expected:    "SELECT index FROM h2o_quality WHERE time <= ?",
+		},
+		{
+			name:        "3",
+			queryString: "SELECT index FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z'",
+			expected:    "SELECT index FROM h2o_quality WHERE time >= ?",
+		},
+		{
+			name:        "4",
+			queryString: "SELECT index FROM h2o_quality WHERE time = '2019-08-18T00:00:00Z'",
+			expected:    "SELECT index FROM h2o_quality WHERE time = ?",
+		},
+		{
+			name:        "5",
+			queryString: "SELECT index FROM h2o_quality",
+			expected:    "SELECT index FROM h2o_quality",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			replaced := TimeReplace(tt.queryString)
+
+			fmt.Println(replaced)
 		})
 	}
 }

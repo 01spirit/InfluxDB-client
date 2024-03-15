@@ -34,14 +34,14 @@ type ContentEncoding string
 
 // 连接数据库
 var c, err = NewHTTPClient(HTTPConfig{
-	Addr: "http://10.170.48.244:8086",
-	//Addr: "http://localhost:8086",
+	//Addr: "http://10.170.48.244:8086",
+	Addr: "http://localhost:8086",
 	//Username: username,
 	//Password: password,
 })
 
 // 连接cache
-var mc = memcache.New("localhost:11213")
+var mc = memcache.New("localhost:11214")
 
 // 数据库中所有表的tag和field
 var TagKV = GetTagKV(c, MyDB)
@@ -1916,6 +1916,47 @@ func GetSP(query string, resp *Response, tagMap MeasurementTagMap) (string, []st
 	return result, tagConds
 }
 
+// 获取一条查询语句的时间范围
+func GetQueryTimeRange(queryString string) (int64, int64) {
+	matchStr := `(?i).+WHERE(.+)`
+	conditionExpr := regexp.MustCompile(matchStr)
+	if ok, _ := regexp.MatchString(matchStr, queryString); !ok {
+		return -1, -1
+	}
+	condExprMatch := conditionExpr.FindStringSubmatch(queryString)
+	parseExpr := condExprMatch[1]
+
+	now := time.Now()
+	valuer := influxql.NowValuer{Now: now}
+	expr, _ := influxql.ParseExpr(parseExpr)
+	_, timeRange, err := influxql.ConditionExpr(expr, &valuer)
+
+	if err != nil {
+		return -1, -1
+	}
+
+	start_time := timeRange.MinTime().UnixNano()
+	end_time := timeRange.MaxTime().UnixNano()
+
+	if start_time < (math.MinInt64 / 2) {
+		start_time = -1
+	}
+	if end_time > (math.MaxInt64 / 2) {
+		end_time = -1
+	}
+
+	return start_time, end_time
+}
+
+// 用 "?" 替换查询语句的时间范围，重构为查询模版
+func TimeReplace(queryString string) string {
+	reg := regexp.MustCompile("\\'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z\\'")
+	replacement := "?"
+
+	result := reg.ReplaceAll([]byte(queryString), []byte(replacement))
+	return string(result)
+}
+
 /*
 SP 和 ST 都可以在这个函数中取到		条件判断谓词和查询时间范围
 */
@@ -2619,11 +2660,221 @@ func TimeInt64ToString(number int64) string {
 	return timestamp
 }
 
-//func TSDBByteToValue(byteArray []byte) *Response {
-//
-//}
+// 把字节流转换成查询结果
+func TSCacheByteToValue(byteArray []byte) *Response {
+	/* 没有数据 */
+	if len(byteArray) == 0 {
+		return nil
+	}
 
-func TSDBValueToByte(resp *Response) []byte {
+	data_len := make(map[string]int) // 每列的数据类型对应的字节长度
+	data_len = map[string]int{"int64": 8, "float64": 8, "string": 25, "bool": 1}
+
+	measurement_name := ""
+	cur_datatype := ""
+	cur_col := ""
+	tag_field := make([]string, 0)              // 返回的第一个参数，由 measurement_name, tag, field, datatype 连接成的字符串，直接从字节数组中转换出来，暂时不处理
+	field_total_length := make([]int64, 0)      // 返回的第二个参数，每列数据的总长度
+	datatypes := make([]string, 0)              // 包含在 tag_field 中的，每列的数据类型
+	columns := make([]string, 0)                // 列名
+	value_all_field := make([][]interface{}, 0) // 返回的第三个参数，所有列的所有数据
+	value_per_field := make([]interface{}, 0)   // 每列的所有数据
+	tags := make(map[string]string)             // 每张子表的所有 tag
+
+	index := 0               // byteArray 数组的索引，指示当前要转换的字节的位置
+	length := len(byteArray) // Get()获取的总字节数
+	var cur_tag_field string // 当前处理的一个 tag_field 字符串
+	var cur_field_len int64  // 当前列的数据总长度
+	var cur_data_len int     // 当前列的单个数据的长度
+
+	/* 转换 */
+	for index < length {
+		/* 结束转换 */
+		if index == length-2 { // 索引指向数组的最后两字节
+			if byteArray[index] == 13 && byteArray[index+1] == 10 { // "\r\n"，表示Get()返回的字节数组的末尾，结束转换		Get()除了返回查询数据之外，还会在数据末尾添加一个 "\r\n",如果读到这个组合，说明到达数组末尾
+				break
+			} else {
+				log.Fatal(errors.New("expect CRLF in the end of []byte"))
+			}
+		}
+
+		/* 第一个参数 tag_field */
+		if byteArray[index] == byte('(') { // 以 '(' 开始
+			tfStartIndex := index
+			for byteArray[index] != byte(' ') { // 以 ' ' 结束
+				index++
+			}
+			tfEndIndex := index
+			cur_tag_field = string(byteArray[tfStartIndex:tfEndIndex]) // 截取并转换成字符串
+			tag_field = append(tag_field, cur_tag_field)
+
+			/* 第二个参数 field_total_len */
+			index++                // 两个参数间由一个空格分隔，跳过空格
+			lenStartIndex := index // 索引指向 field length 的第一个字节
+			index += 8
+			lenEndIndex := index // 索引指向 field length 的最后一个字节
+			cur_field_len, err = ByteArrayToInt64(byteArray[lenStartIndex:lenEndIndex])
+			if err != nil {
+				log.Fatal(err)
+			}
+			field_total_length = append(field_total_length, cur_field_len)
+
+			/* 从 tag_field 中取出每列的数据类型 */
+			dtStartIndex := strings.Index(cur_tag_field, "[") + 1
+			dtEndIndex := len(cur_tag_field) - 1
+			cur_datatype = cur_tag_field[dtStartIndex:dtEndIndex]
+			datatypes = append(datatypes, cur_datatype)
+			// 每列的列名
+			colStartIndex := strings.LastIndex(cur_tag_field, ".") + 1
+			colEndIndex := dtStartIndex - 1
+			cur_col = cur_tag_field[colStartIndex:colEndIndex]
+			columns = append(columns, cur_col)
+		}
+
+		/* 每列的具体数据 */
+		cur_data_len = data_len[cur_datatype]        // 单个数据的长度
+		row_num := int(cur_field_len) / cur_data_len // 数据总行数
+		value_per_field = nil
+		for len(value_per_field) < row_num {
+			switch cur_datatype {
+			case "bool":
+				bStartIdx := index
+				index += 1 //	索引指向当前数据的后一个字节
+				bEndIdx := index
+				tmp, err := ByteArrayToBool(byteArray[bStartIdx:bEndIdx])
+				if err != nil {
+					log.Fatal(err)
+				}
+				value_per_field = append(value_per_field, tmp)
+				break
+			case "int64":
+				iStartIdx := index
+				index += 8 // 索引指向当前数据的后一个字节
+				iEndIdx := index
+				tmp, err := ByteArrayToInt64(byteArray[iStartIdx:iEndIdx])
+				if err != nil {
+					log.Fatal(err)
+				}
+				str := strconv.FormatInt(tmp, 10)
+				jNumber := json.Number(str) // int64 转换成 json.Number 类型	;Response中的数字类型只有json.Number	int64和float64都要转换成json.Number
+				value_per_field = append(value_per_field, jNumber)
+				break
+			case "float64":
+				fStartIdx := index
+				index += 8 // 索引指向当前数据的后一个字节
+				fEndIdx := index
+				tmp, err := ByteArrayToFloat64(byteArray[fStartIdx:fEndIdx])
+				if err != nil {
+					log.Fatal(err)
+				}
+				str := strconv.FormatFloat(tmp, 'g', -1, 64)
+				jNumber := json.Number(str) // 转换成json.Number
+				value_per_field = append(value_per_field, jNumber)
+				break
+			default: // string
+				sStartIdx := index
+				index += STRINGBYTELENGTH // 索引指向当前数据的后一个字节
+				sEndIdx := index
+				tmp := ByteArrayToString(byteArray[sStartIdx:sEndIdx])
+				value_per_field = append(value_per_field, tmp) // 存放一行数据中的每一列
+				break
+			}
+
+		}
+		value_all_field = append(value_all_field, value_per_field)
+	}
+
+	/* 还原表结构，构造成 Response 返回 */
+	modelsRows := make([]models.Row, 0)
+
+	// tag_field : (measurement.tag1=name1,tag2=name2).field_name[datatype]
+	// value_all_field [][]interface{} 插入
+	mnStartIndex := strings.Index(cur_tag_field, "(") + 1
+	mnEndIndex := strings.Index(cur_tag_field, ".")
+	measurement_name = cur_tag_field[mnStartIndex:mnEndIndex]
+
+	/* tags */
+	series_num := 0 // 子表数量
+	col_num := 0    // 每张表的列数
+	tag_str_map := make(map[string]int)
+	for i := range tag_field {
+		tagStartIndex := strings.Index(tag_field[i], ".") + 1
+		tagEndIndex := strings.Index(tag_field[i], ")")
+		tmp_tags := tag_field[i][tagStartIndex:tagEndIndex]
+		tag_str_map[tmp_tags]++
+	}
+	series_num = len(tag_str_map)
+	col_num = len(columns) / len(tag_str_map) // 每张子表的 tag_str 相同	，总列数 / tag_str 总数 即为每张表的列数
+
+	/* values */
+	valuess := make([][][]interface{}, 0)
+	values := make([][]interface{}, 0)
+	value := make([]interface{}, 0)
+	for i := 0; i < series_num; i++ { // 第 i 张子表
+		values = nil
+		for j := range value_all_field[i*col_num] { // 一张子表的数据行数
+			value = nil
+			for k := i * col_num; k < (i+1)*col_num; k++ {
+				value = append(value, value_all_field[k][j])
+			}
+			values = append(values, value)
+		}
+		valuess = append(valuess, values)
+	}
+
+	tag_str_arr := make([]string, 0)
+	for key := range tag_str_map {
+		tag_str_arr = append(tag_str_arr, key)
+	}
+	slices.Sort(tag_str_arr)
+
+	for i, key := range tag_str_arr {
+		split_tags := strings.Split(key, ",")
+		for _, tag := range split_tags {
+			eqIndex := strings.Index(tag, "=")
+			if eqIndex <= 0 {
+				break
+			}
+			k := tag[:eqIndex]
+			v := tag[eqIndex+1:]
+			tags[k] = v
+		}
+
+		tmpTags := make(map[string]string)
+		for key, value := range tags {
+			tmpTags[key] = value
+		}
+		/* 构造一个子表的结构 Series */
+		seriesTmp := Series{
+			Name:    measurement_name,
+			Tags:    tmpTags,
+			Columns: columns[:col_num],
+			Values:  valuess[i],
+			Partial: false,
+		}
+
+		/*  转换成 models.Row 数组 */
+		row := SeriesToRow(seriesTmp)
+		modelsRows = append(modelsRows, row)
+	}
+
+	/* 构造返回结果 */
+	result := Result{
+		StatementId: 0,
+		Series:      modelsRows,
+		Messages:    nil,
+		Err:         "",
+	}
+	resp := Response{
+		Results: []Result{result},
+		Err:     "",
+	}
+
+	return &resp
+}
+
+// 把查询结果转换成字节流
+func TSCacheValueToByte(resp *Response) []byte {
 	result := make([]byte, 0)
 
 	/* 结果为空 */
@@ -2634,7 +2885,7 @@ func TSDBValueToByte(resp *Response) []byte {
 	//datatypes := DataTypeArrayFromResponse(resp)
 
 	/* 列名、数据长度、具体数据 */
-	tag_field, field_len, field_value := TSDBParameter(resp)
+	tag_field, field_len, field_value := TSCacheParameter(resp)
 
 	// 子表数量、列的数量
 	//table_num := len(tag_field)
@@ -2657,7 +2908,8 @@ func TSDBValueToByte(resp *Response) []byte {
 	return result
 }
 
-func TSDBParameter(resp *Response) ([][]string, [][]int64, [][][]byte) {
+// 获取把查询结果转换成字节流所需的数据，包括 列名、每列数据的总长度、每列的具体数据
+func TSCacheParameter(resp *Response) ([][]string, [][]int64, [][][]byte) {
 	var tag_value []string     // 每张子表的所有 tag 的值连接成字符串
 	var tag_field [][]string   // 每张子表的多个列，每个列的列名和 tag 连接成字符串
 	var field_len [][]int64    // 每张子表的每个列的数据的长度
@@ -2688,7 +2940,7 @@ func TSDBParameter(resp *Response) ([][]string, [][]int64, [][][]byte) {
 			for c := range resp.Results[r].Series[s].Columns { // 每张子表的每个列
 				// 每列的列名连接成字符串
 				tmp_tag_field := ""
-				tmp_tag_field = fmt.Sprintf("(%s)%s[%s]", tag_value[s], resp.Results[r].Series[s].Columns[c], datatype[c])
+				tmp_tag_field = fmt.Sprintf("(%s).%s[%s]", tag_value[s], resp.Results[r].Series[s].Columns[c], datatype[c])
 				tfld = append(tfld, tmp_tag_field)
 
 				// 每张子表的每个列的数据的总字节数
@@ -2710,6 +2962,36 @@ func TSDBParameter(resp *Response) ([][]string, [][]int64, [][][]byte) {
 	}
 
 	return tag_field, field_len, field_value
+}
+
+// todo 重构生成语义段的功能
+func GetSemanticSegment(queryString string) string {
+	result := ""
+
+	return result
+}
+
+// todo
+/*
+	1. 客户端接收查询语句
+	2. 客户端向 cache 系统查询，得到部分结果
+	3. 生成这条查询语句的模版，把时间范围用占位符替换
+	4. 得到要向数据库查询的时间范围，带入模版，向数据库查询剩余数据
+	5. 客户端把剩余数据存入 cache 系统
+*/
+func IntegratedClient(queryString string) {
+	/* 原始查询语句的时间范围 */
+	startTime, endTime := GetQueryTimeRange(queryString) // 当查询的时间只有一半时，另一个值为 -1; 当查询时间为 "=" 时，两值相等
+
+	/* 原始查询语句替换掉时间之后的的模版 */
+	queryTemplate := TimeReplace(queryString) // 时间用 '?' 代替
+
+	/* 构造语义段 */
+	// todo
+
+	/* 向 cache 查询数据 */
+	mc.Get()
+
 }
 
 // todo :
