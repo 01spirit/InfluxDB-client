@@ -1009,34 +1009,27 @@ func TestGetFieldKeys(t *testing.T) {
 
 	fieldKeys := GetFieldKeys(c, MyDB)
 
-	expected := make(map[string][]string)
-	expected["h2o_feet"] = []string{"level description", "water_level"}
-	expected["h2o_pH"] = []string{"pH"}
-	expected["h2o_quality"] = []string{"index"}
-	expected["h2o_temperature"] = []string{"degrees"}
-	expected["average_temperature"] = []string{"degrees"}
+	expected := make(map[string]map[string]string)
+	expected["h2o_feet"] = map[string]string{"level description": "string", "water_level": "float64"}
+	expected["h2o_pH"] = map[string]string{"pH": "int64"}
+	expected["h2o_quality"] = map[string]string{"index": "int64"}
+	expected["h2o_temperature"] = map[string]string{"degrees": "int64"}
+	expected["average_temperature"] = map[string]string{"degrees": "int64"}
 
-	for _, v := range fieldKeys {
-		for i := range v {
-			//if strings.Compare(v[i], expected[k][i]) != 0 {
-			//	t.Errorf("field:%s", v[i])
-			//	t.Errorf("expected:%s", expected[k][i])
-			//}
-			fmt.Println(v[i])
+	fmt.Println(fieldKeys)
+	fmt.Println("measurement:")
+	for key, val := range fieldKeys {
+		fmt.Printf("%s\n", key)
+		//fmt.Println("\tfield and datatype:")
+		for k, v := range val {
+			fmt.Printf("\t%s:%s\n", k, v)
 		}
-
 	}
 
 }
 
 func TestGetTagKV(t *testing.T) {
 	measurementTagMap := GetTagKV(c, MyDB)
-	expected := make(map[string][]string)
-	expected["h2o_feet"] = []string{"location"}
-	expected["h2o_pH"] = []string{"location"}
-	expected["h2o_quality"] = []string{"location", "randtag"}
-	expected["h2o_temperature"] = []string{"location"}
-	expected["average_temperature"] = []string{"location"}
 
 	fmt.Println(measurementTagMap.Measurement)
 	for name, tagmap := range measurementTagMap.Measurement {
@@ -1047,6 +1040,7 @@ func TestGetTagKV(t *testing.T) {
 			}
 		}
 	}
+	// 运行结果:
 	//h2o_pH
 	//location [coyote_creek santa_monica]
 	//h2o_quality
@@ -4445,6 +4439,224 @@ func TestTSCacheByteToValue(t *testing.T) {
 			fmt.Println("\nbytes are equal:")
 			fmt.Println(bytes.Equal(resp.ToByteArray(tt.queryString), respConverted.ToByteArray(tt.queryString)))
 
+		})
+	}
+}
+
+func TestCombinationTagValues(t *testing.T) {
+	//tagConds := []string{"a=1", "b=2", "c=3"}
+	tagValues := [][]string{{"1", "2"}, {"3", "4", "5"}, {"6", "7", "8"}}
+	result := make([][]string, 0)
+	single_result := make([]string, 0)
+	count := []int{1}
+	result = CombinationTagValues(tagValues, result, &single_result, 0, 1)
+	fmt.Println(result)
+}
+
+func TestGroupByTags(t *testing.T) {
+	tests := []struct {
+		name        string
+		queryString string
+		expected    []string
+	}{
+		{
+			name:        "1",
+			queryString: "SELECT water_level FROM h2o_feet WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z'",
+			expected:    []string{},
+		},
+		{
+			name:        "2",
+			queryString: "SELECT water_level FROM h2o_feet WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' group by time(12m)",
+			expected:    []string{},
+		},
+		{
+			name:        "3",
+			queryString: "SELECT index FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUp by location,time(12m)",
+			expected:    []string{"location"},
+		},
+		{
+			name:        "4",
+			queryString: "SELECT index FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUp by location, randtag, time(12m)",
+			expected:    []string{"location", "randtag"},
+		},
+		{
+			name:        "5",
+			queryString: "SELECT index FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUp by location, randtag",
+			expected:    []string{"location", "randtag"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			meaName := MeasurementName(tt.queryString)
+			tagValues := GroupByTags(tt.queryString, meaName)
+
+			for i, val := range tagValues {
+				//fmt.Println(val)
+				if val != tt.expected[i] {
+					t.Errorf("tag value:\t%s\n", val)
+					t.Errorf("expected:\t%s\n", tt.expected[i])
+				}
+			}
+			//fmt.Println()
+		})
+	}
+}
+
+func TestFieldsAndAggregation(t *testing.T) {
+	tests := []struct {
+		name        string
+		queryString string
+		expected    []string
+	}{
+		{
+			name:        "1",
+			queryString: "SELECT water_level FROM h2o_feet WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z'",
+			expected:    []string{"water_level[float64]", "empty"},
+		},
+		{
+			name:        "2",
+			queryString: "SELECT water_level,location FROM h2o_feet WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z'",
+			expected:    []string{"water_level[float64],location[string]", "empty"},
+		},
+		{
+			name:        "3",
+			queryString: "SELECT index,location,randtag FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z'",
+			expected:    []string{"index[int64],location[string],randtag[string]", "empty"},
+		},
+		{
+			name:        "4",
+			queryString: "SELECT location,index,randtag,index FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z'",
+			expected:    []string{"location[string],index[int64],randtag[string],index[int64]", "empty"},
+		},
+		{
+			name:        "5",
+			queryString: "SELECT COUNT(water_level) FROM h2o_feet WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY time(12m)",
+			expected:    []string{"water_level[float64]", "count"},
+		},
+		{
+			name:        "6",
+			queryString: "select max(water_level) from h2o_feet where time >= '2019-08-18T00:00:00Z' and time <= '2019-08-18T00:30:00Z' group by time(12m)",
+			expected:    []string{"water_level[float64]", "max"},
+		},
+		{
+			name:        "7",
+			queryString: "SELECT MEAN(water_level),MEAN(water_level) FROM h2o_feet WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY time(12m)",
+			expected:    []string{"water_level[float64],water_level[float64]", "mean"},
+		},
+		{
+			name:        "8",
+			queryString: "SELECT MEAN(*) FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY time(12m)",
+			expected:    []string{"index[int64]", "mean"},
+		},
+		{
+			name:        "9",
+			queryString: "SELECT * FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z'",
+			expected:    []string{"index[int64],location[string],randtag[string]", "empty"},
+		},
+	}
+	fmt.Println(Fields)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			meaName := MeasurementName(tt.queryString)
+			sf, aggr := FieldsAndAggregation(tt.queryString, meaName)
+			if sf != tt.expected[0] {
+				t.Errorf("fields:%s", sf)
+				t.Errorf("expected:%s", tt.expected[0])
+			}
+			if aggr != tt.expected[1] {
+				t.Errorf("aggregation:%s", aggr)
+				t.Errorf("expected:%s", tt.expected[1])
+			}
+
+		})
+	}
+}
+
+func TestPredicatesAndTagConditions(t *testing.T) {
+	tests := []struct {
+		name         string
+		queryString  string
+		expected     string
+		expectedTags []string
+	}{
+		{
+			name:         "1",
+			queryString:  "SELECT index FROM h2o_quality WHERE randtag='2' AND index>=50 AND location='santa_monica' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY location",
+			expected:     "{(index>=50[int64])}",
+			expectedTags: []string{"location=santa_monica", "randtag=2"},
+		},
+		{
+			name:         "2",
+			queryString:  "SELECT index FROM h2o_quality WHERE location='coyote_creek' AND randtag='2' AND index>=50 AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY location",
+			expected:     "{(index>=50[int64])}",
+			expectedTags: []string{"location=coyote_creek", "randtag=2"},
+		},
+		{
+			name:         "3",
+			queryString:  "SELECT water_level FROM h2o_feet WHERE location != 'santa_monica' AND (water_level < -0.59 OR water_level > 9.95)",
+			expected:     "{(water_level<-0.590[float64])(water_level>9.950[float64])}",
+			expectedTags: []string{"location!=santa_monica"},
+		},
+		{
+			name:         "4",
+			queryString:  "SELECT water_level FROM h2o_feet WHERE location <> 'santa_monica' AND (water_level > -0.59 AND water_level < 9.95) AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY location",
+			expected:     "{(water_level>-0.590[float64])(water_level<9.950[float64])}",
+			expectedTags: []string{"location!=santa_monica"},
+		},
+		{
+			name:         "5",
+			queryString:  "select max(usage_guest) from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:02:00Z' and hostname='host_0' group by time(1m)",
+			expected:     "{empty}",
+			expectedTags: []string{"hostname=host_0"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			meaName := MeasurementName(tt.queryString)
+			SP, tagConds := PredicatesAndTagConditions(tt.queryString, meaName, TagKV)
+
+			if strings.Compare(SP, tt.expected) != 0 {
+				t.Errorf("SP:\t%s\nexpected:\t%s", SP, tt.expected)
+			}
+			for i := range tagConds {
+				if strings.Compare(tagConds[i], tt.expectedTags[i]) != 0 {
+					t.Errorf("tag:\t%s\nexpected tag:\t%s", tagConds[i], tt.expectedTags[i])
+				}
+			}
+			//fmt.Println(SP)
+			//fmt.Println(tagConds)
+		})
+	}
+}
+
+func TestMeasurementName(t *testing.T) {
+	tests := []struct {
+		name        string
+		queryString string
+		expected    string
+	}{
+		{
+			name:        "1",
+			queryString: "SELECT index FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z'",
+			expected:    "h2o_quality",
+		},
+		{
+			name:        "2",
+			queryString: "select usage_guest from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:00:20Z' and hostname='host_0'",
+			expected:    "cpu",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			measurementName := MeasurementName(tt.queryString)
+
+			if measurementName != tt.expected {
+				t.Errorf("measurement:\t%s\n", measurementName)
+				t.Errorf("expected:\t%s\n", tt.expected)
+			}
+			//fmt.Println(measurementName)
 		})
 	}
 }

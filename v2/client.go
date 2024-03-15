@@ -1301,8 +1301,8 @@ func GetResponseTimeRange(resp *Response) (int64, int64) {
 	return minStartTime, maxEndTime
 }
 
-// 获取一个数据库中所有表的field name，每张表存为一个map，其中的fields存为一个string数组
-func GetFieldKeys(c Client, database string) map[string][]string {
+// 获取一个数据库中所有表的field name及其数据类型
+func GetFieldKeys(c Client, database string) map[string]map[string]string {
 	// 构建查询语句
 	//query := fmt.Sprintf("SHOW FIELD KEYS on %s from %s", database, measurement)
 	query := fmt.Sprintf("SHOW FIELD KEYS on %s", database)
@@ -1321,19 +1321,52 @@ func GetFieldKeys(c Client, database string) map[string][]string {
 		return nil
 	}
 
-	fieldMap := make(map[string][]string)
+	fieldMap := make(map[string]map[string]string)
 	for _, series := range resp.Results[0].Series {
 		fieldNames := make([]string, 0)
+		datatypes := make([]string, 0)
 		measurementName := series.Name
 		for _, value := range series.Values {
 			fieldName, ok := value[0].(string)
+			datatype, ok := value[1].(string)
 			if !ok {
-				log.Fatal("field name fail to convert to string")
+				log.Fatal("field and datatype name fail to convert to string")
 			}
 			fieldNames = append(fieldNames, fieldName)
+			datatypes = append(datatypes, datatype)
+		}
+		fdMap := make(map[string]string)
+		for i := range fieldNames {
+			fdMap[fieldNames[i]] = datatypes[i]
 		}
 
-		fieldMap[measurementName] = fieldNames
+		fieldMap[measurementName] = fdMap
+	}
+
+	for key := range fieldMap {
+		query := fmt.Sprintf("select *::field from %s limit 1", key)
+		// 执行查询
+		q := NewQuery(query, database, "")
+		resp, err := c.Query(q)
+		if err != nil {
+			fmt.Printf("Error: %s\n", err.Error())
+			return nil
+		}
+
+		// 处理查询结果
+		if resp.Error() != nil {
+			fmt.Printf("Error: %s\n", resp.Error().Error())
+			return nil
+		}
+
+		datatypes := DataTypeArrayFromResponse(resp)
+		for i, field := range resp.Results[0].Series[0].Columns {
+			if i == 0 {
+				continue
+			}
+			fieldMap[key][field] = datatypes[i]
+		}
+
 	}
 
 	return fieldMap
@@ -1481,7 +1514,7 @@ func GetSM(resp *Response, tagPredicates []string) string {
 	for i := range tagPredicates {
 		var idx int
 		if idx = strings.Index(tagPredicates[i], "!"); idx < 0 { // "!="
-			idx = strings.Index(tagPredicates[i], "=")
+			idx = strings.Index(tagPredicates[i], "=") // "="
 		}
 		tagName := tagPredicates[i][:idx]
 		if !slices.Contains(tagArr, tagName) {
@@ -1692,35 +1725,6 @@ func GetSFSGWithDataType(queryString string, resp *Response) (string, string) {
 		}
 	}
 
-	//if strings.IndexAny(FGstr, ")") > 0 {
-	//	/* 获取聚合函数 */
-	//	index := strings.IndexAny(FGstr, "(")
-	//	aggr = FGstr[:index]
-	//	aggr = strings.ToLower(aggr)
-	//
-	//	/* 从查询语句获取field(实际的列名) */
-	//	fields = append(fields, "time")
-	//	var startIdx int
-	//	var endIdx int
-	//	for idx, ch := range FGstr { // 括号中间的部分是fields，默认没有双引号，不作处理
-	//		if ch == '(' {
-	//			startIdx = idx + 1
-	//		}
-	//		if ch == ')' {
-	//			endIdx = idx
-	//		}
-	//	}
-	//	tmpStr := FGstr[startIdx:endIdx]
-	//	tmpArr := strings.Split(tmpStr, ",")
-	//	fields = append(fields, tmpArr...)
-	//} else {
-	//	aggr = "empty"
-	//	/* 从Response获取列名 */
-	//	for _, c := range resp.Results[0].Series[0].Columns {
-	//		fields = append(fields, c)
-	//	}
-	//}
-
 	/* 从查寻结果中获取每一列的数据类型 */
 	dataTypes := DataTypeArrayFromResponse(resp)
 	for i := range fields {
@@ -1914,47 +1918,6 @@ func GetSP(query string, resp *Response, tagMap MeasurementTagMap) (string, []st
 
 	sort.Strings(tagConds)
 	return result, tagConds
-}
-
-// 获取一条查询语句的时间范围
-func GetQueryTimeRange(queryString string) (int64, int64) {
-	matchStr := `(?i).+WHERE(.+)`
-	conditionExpr := regexp.MustCompile(matchStr)
-	if ok, _ := regexp.MatchString(matchStr, queryString); !ok {
-		return -1, -1
-	}
-	condExprMatch := conditionExpr.FindStringSubmatch(queryString)
-	parseExpr := condExprMatch[1]
-
-	now := time.Now()
-	valuer := influxql.NowValuer{Now: now}
-	expr, _ := influxql.ParseExpr(parseExpr)
-	_, timeRange, err := influxql.ConditionExpr(expr, &valuer)
-
-	if err != nil {
-		return -1, -1
-	}
-
-	start_time := timeRange.MinTime().UnixNano()
-	end_time := timeRange.MaxTime().UnixNano()
-
-	if start_time < (math.MinInt64 / 2) {
-		start_time = -1
-	}
-	if end_time > (math.MaxInt64 / 2) {
-		end_time = -1
-	}
-
-	return start_time, end_time
-}
-
-// 用 "?" 替换查询语句的时间范围，重构为查询模版
-func TimeReplace(queryString string) string {
-	reg := regexp.MustCompile("\\'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z\\'")
-	replacement := "?"
-
-	result := reg.ReplaceAll([]byte(queryString), []byte(replacement))
-	return string(result)
 }
 
 /*
@@ -2964,11 +2927,336 @@ func TSCacheParameter(resp *Response) ([][]string, [][]int64, [][][]byte) {
 	return tag_field, field_len, field_value
 }
 
+func CombinationTagValues(tagValues [][]string, results [][]string, single_result *[]string, index int, count int) [][]string {
+	if index == len(tagValues) {
+		tmp := make([]string, 0)
+		for _, val := range *single_result {
+			tmp = append(tmp, val)
+		}
+		results = append(results, tmp)
+		*single_result = slices.Delete(*single_result, len(*single_result)-count, len(*single_result))
+		count++
+		return results
+	}
+
+	for _, val := range tagValues[index] {
+		*single_result = append(*single_result, val)
+		results = CombinationTagValues(tagValues, results, single_result, index+1, count)
+	}
+
+	return results
+}
+
+func IntegrationSM(measurementName string, tagConds []string, tags []string) string {
+	result := ""
+
+	tagValues := make(map[string][]string)
+	tagPre := make([]string, 0) // 谓词 tag
+	// 谓词 tag 处理
+	for i := range tagConds {
+		var idx int
+		if idx = strings.Index(tagConds[i], "!"); idx < 0 { // "!="
+			idx = strings.Index(tagConds[i], "=") // "="
+		}
+		tagName := tagConds[i][:idx]
+		tagPre = append(tagPre, tagName)
+	}
+	// GROUP BY tag 处理
+	values := make([]string, 0)
+	for _, tag := range tags {
+		if !slices.Contains(tagPre, tag) { // GROUP BY 独有的 tag，获得其所有值
+			for _, tagMap := range TagKV.Measurement[measurementName] {
+				if len(tagMap.Tag[tag].Values) != 0 {
+					values = tagMap.Tag[tag].Values
+					for _, val := range values {
+						tmpTagValues := fmt.Sprintf("%s=%s", tag, val)
+						tagValues[tag] = append(tagValues[tag], tmpTagValues)
+					}
+					break
+				}
+			}
+		}
+	}
+
+	table_num := 1 // 结果中的子表数量
+	tagStr := make([]string, 0)
+	allTagStr := make([][]string, 0)
+	for key, val := range tagValues {
+		table_num *= len(val)
+		for _, v := range val {
+			//tmp := fmt.Sprintf("%s=%s", key, v)
+			tagStr = append(tagStr, tmp)
+		}
+		allTagStr = append(allTagStr, tagStr)
+	}
+	result += "{"
+	// 把两种 tag 组合成 SM 字段
+	//for i := range tagConds {
+	//
+	//}
+
+	result += "}"
+	return result
+}
+
+// GROUP BY 后面的 tags 的所有值
+func GroupByTags(queryString string, measurementName string) []string {
+	matchStr := `(?i).+GROUP BY (.+)`
+	conditionExpr := regexp.MustCompile(matchStr)
+	if ok, _ := regexp.MatchString(matchStr, queryString); !ok { // 没有 GROUP BY
+		return nil
+	}
+	condExprMatch := conditionExpr.FindStringSubmatch(queryString)
+	parseExpr := condExprMatch[1]
+
+	//values := make([]string, 0)
+	totalTags := strings.Split(parseExpr, ",")
+	tags := make([]string, 0)
+	for _, tag := range totalTags {
+		tag = strings.TrimSpace(tag)
+		if strings.Contains(tag, "time") {
+			continue
+		}
+		tags = append(tags, tag)
+	}
+	if len(tags) == 0 {
+		return nil
+	}
+	slices.Sort(tags)
+
+	return tags
+}
+
+// 列名 和 聚合函数名称
+func FieldsAndAggregation(queryString string, measurementName string) (string, string) {
+	var fields []string
+	var FGstr string
+
+	/* 用正则匹配从查询语句中取出包含聚合函数和列名的字符串  */
+	regStr := `(?i)SELECT\s*(.+)\s*FROM.+`
+	regExpr := regexp.MustCompile(regStr)
+
+	if ok, _ := regexp.MatchString(regStr, queryString); ok {
+		match := regExpr.FindStringSubmatch(queryString)
+		FGstr = match[1] // fields and aggr
+	} else {
+		return "error", "error"
+	}
+
+	var aggr string
+	singleField := strings.Split(FGstr, ",")
+	if strings.IndexAny(singleField[0], "(") > 0 && strings.IndexAny(singleField[0], "*") < 0 { // 有一或多个聚合函数, 没有通配符 '*'
+		/* 获取聚合函数名 */
+		index := strings.IndexAny(singleField[0], "(")
+		aggr = singleField[0][:index]
+		aggr = strings.ToLower(aggr)
+
+		/* 从查询语句获取field(实际的列名) */
+		var startIdx int
+		var endIdx int
+		for i := range singleField {
+			for idx, ch := range singleField[i] { // 括号中间的部分是fields，默认没有双引号，不作处理
+				if ch == '(' {
+					startIdx = idx + 1
+				}
+				if ch == ')' {
+					endIdx = idx
+				}
+			}
+			tmpStr := singleField[i][startIdx:endIdx]
+			tmpArr := strings.Split(tmpStr, ",")
+			for i := range tmpArr {
+				tmpArr[i] = strings.TrimSpace(tmpArr[i])
+			}
+			fields = append(fields, tmpArr...)
+		}
+
+	} else if strings.IndexAny(singleField[0], "(") > 0 && strings.IndexAny(singleField[0], "*") >= 0 { // 有聚合函数，有通配符 '*'
+		/* 获取聚合函数名 */
+		index := strings.IndexAny(singleField[0], "(")
+		aggr = singleField[0][:index]
+		aggr = strings.ToLower(aggr)
+
+		/* 获取列名 */
+		fieldMap := Fields[measurementName]
+		for key := range fieldMap {
+			fields = append(fields, key)
+		}
+
+	} else if strings.IndexAny(singleField[0], "(") <= 0 && strings.IndexAny(singleField[0], "*") >= 0 { // 没有聚合函数，有通配符
+		aggr = "empty"
+		/* 获取列名 */
+		fieldMap := Fields[measurementName]
+		for key := range fieldMap {
+			fields = append(fields, key)
+		}
+		tagMap := TagKV
+		for _, tags := range tagMap.Measurement {
+			for i := range tags {
+				for tagkey, _ := range tags[i].Tag {
+					fields = append(fields, tagkey)
+				}
+			}
+		}
+		slices.Sort(fields)
+		fields = slices.Compact(fields)
+
+	} else { // 没有聚合函数， 没有通配符
+		aggr = "empty"
+		for i := range singleField {
+			singleField[i] = strings.TrimSpace(singleField[i])
+		}
+		fields = append(fields, singleField...)
+	}
+
+	/* 获取每一列的数据类型 */
+	fieldMap := Fields[measurementName]
+	for i := range fields {
+		datatype := fieldMap[fields[i]]
+		if datatype == "" {
+			datatype = "string"
+		}
+		fields[i] = fmt.Sprintf("%s[%s]", fields[i], datatype)
+	}
+
+	var fieldsStr string
+	fieldsStr = strings.Join(fields, ",")
+
+	return fieldsStr, aggr
+}
+
+// 条件谓词，区分出 field 的谓词和 tag 的谓词
+func PredicatesAndTagConditions(query string, measurement string, tagMap MeasurementTagMap) (string, []string) {
+	//regStr := `(?i).+WHERE(.+)GROUP BY.`
+	regStr := `(?i).+WHERE(.+)`
+	conditionExpr := regexp.MustCompile(regStr)
+	if ok, _ := regexp.MatchString(regStr, query); !ok {
+		return "{empty}", nil
+	}
+	condExprMatch := conditionExpr.FindStringSubmatch(query) // 获取 WHERE 后面的所有表达式，包括谓词和时间范围
+	parseExpr := condExprMatch[1]
+
+	now := time.Now()
+	valuer := influxql.NowValuer{Now: now}
+	expr, _ := influxql.ParseExpr(parseExpr)
+	cond, _, _ := influxql.ConditionExpr(expr, &valuer) //提取出谓词
+
+	tagConds := make([]string, 0)
+	var result string
+	if cond == nil { //没有谓词
+		result += fmt.Sprintf("{empty}")
+	} else { //从语法树中找出由AND或OR连接的所有独立的谓词表达式
+		var conds []string
+		var tag []string
+		binaryExpr := cond.(*influxql.BinaryExpr)
+		var datatype []string
+
+		tags, predicates, datatypes := PreOrderTraverseBinaryExpr(binaryExpr, &tag, &conds, &datatype)
+		result += "{"
+		for i, p := range *predicates {
+			isTag := false
+			found := false
+			for _, t := range tagMap.Measurement[measurement] {
+				for tagkey, _ := range t.Tag {
+					if (*tags)[i] == tagkey {
+						isTag = true
+						found = true
+						break
+					}
+				}
+				if found {
+					break
+				}
+			}
+
+			if !isTag {
+				result += fmt.Sprintf("(%s[%s])", p, (*datatypes)[i])
+			} else {
+				p = strings.ReplaceAll(p, "'", "")
+				tagConds = append(tagConds, p)
+			}
+		}
+		result += "}"
+	}
+
+	if len(result) == 2 {
+		result = "{empty}"
+	}
+
+	sort.Strings(tagConds)
+	return result, tagConds
+}
+
+// 度量名称
+func MeasurementName(queryString string) string {
+	regStr := `(?i)FROM(.+)WHERE`
+	conditionExpr := regexp.MustCompile(regStr)
+	if ok, _ := regexp.MatchString(regStr, queryString); !ok {
+		return ""
+	}
+	condExprMatch := conditionExpr.FindStringSubmatch(queryString) // 获取 WHERE 后面的所有表达式，包括谓词和时间范围
+	parseExpr := condExprMatch[1]
+
+	trimStr := strings.TrimSpace(parseExpr)
+	splitIndex := strings.LastIndex(trimStr, ".") + 1
+	measurementName := trimStr[splitIndex:]
+
+	return measurementName
+}
+
 // todo 重构生成语义段的功能
 func GetSemanticSegment(queryString string) string {
 	result := ""
 
+	//measurement := MeasurementName(queryString)
+	//SP, tagConds := PredicatesAndTagConditions(queryString, measurement, TagKV)
+	//fields, aggr := FieldsAndAggregation(queryString, measurement)
+	//tags := GroupByTags(queryString, measurement)
+	//
+	//Interval := GetInterval(queryString)
+
 	return result
+}
+
+// 获取一条查询语句的时间范围
+func GetQueryTimeRange(queryString string) (int64, int64) {
+	matchStr := `(?i).+WHERE(.+)`
+	conditionExpr := regexp.MustCompile(matchStr)
+	if ok, _ := regexp.MatchString(matchStr, queryString); !ok {
+		return -1, -1
+	}
+	condExprMatch := conditionExpr.FindStringSubmatch(queryString)
+	parseExpr := condExprMatch[1]
+
+	now := time.Now()
+	valuer := influxql.NowValuer{Now: now}
+	expr, _ := influxql.ParseExpr(parseExpr)
+	_, timeRange, err := influxql.ConditionExpr(expr, &valuer)
+
+	if err != nil {
+		return -1, -1
+	}
+
+	start_time := timeRange.MinTime().UnixNano()
+	end_time := timeRange.MaxTime().UnixNano()
+
+	if start_time < (math.MinInt64 / 2) {
+		start_time = -1
+	}
+	if end_time > (math.MaxInt64 / 2) {
+		end_time = -1
+	}
+
+	return start_time, end_time
+}
+
+// 用 "?" 替换查询语句的时间范围，重构为查询模版
+func TimeReplace(queryString string) string {
+	reg := regexp.MustCompile("\\'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z\\'")
+	replacement := "?"
+
+	result := reg.ReplaceAll([]byte(queryString), []byte(replacement))
+	return string(result)
 }
 
 // todo
@@ -2980,17 +3268,17 @@ func GetSemanticSegment(queryString string) string {
 	5. 客户端把剩余数据存入 cache 系统
 */
 func IntegratedClient(queryString string) {
-	/* 原始查询语句的时间范围 */
-	startTime, endTime := GetQueryTimeRange(queryString) // 当查询的时间只有一半时，另一个值为 -1; 当查询时间为 "=" 时，两值相等
-
-	/* 原始查询语句替换掉时间之后的的模版 */
-	queryTemplate := TimeReplace(queryString) // 时间用 '?' 代替
-
-	/* 构造语义段 */
-	// todo
-
-	/* 向 cache 查询数据 */
-	mc.Get()
+	///* 原始查询语句的时间范围 */
+	//startTime, endTime := GetQueryTimeRange(queryString) // 当查询的时间只有一半时，另一个值为 -1; 当查询时间为 "=" 时，两值相等
+	//
+	///* 原始查询语句替换掉时间之后的的模版 */
+	//queryTemplate := TimeReplace(queryString) // 时间用 '?' 代替
+	//
+	///* 构造语义段 */
+	//// todo
+	//
+	///* 向 cache 查询数据 */
+	//mc.Get()
 
 }
 
