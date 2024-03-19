@@ -34,8 +34,8 @@ type ContentEncoding string
 
 // 连接数据库
 var c, err = NewHTTPClient(HTTPConfig{
-	//Addr: "http://10.170.48.244:8086",
-	Addr: "http://localhost:8086",
+	Addr: "http://10.170.48.244:8086",
+	//Addr: "http://localhost:8086",
 	//Username: username,
 	//Password: password,
 })
@@ -46,14 +46,15 @@ var mc = memcache.New("localhost:11214")
 // 数据库中所有表的tag和field
 var TagKV = GetTagKV(c, MyDB)
 var Fields = GetFieldKeys(c, MyDB)
+var QueryTemplates = make(map[string]int)
 
 // 结果转换成字节数组时string类型占用字节数
 const STRINGBYTELENGTH = 25
 
 // 数据库名称
 const (
-	MyDB = "NOAA_water_database"
-	//MyDB     = "test"
+	//MyDB = "NOAA_water_database"
+	MyDB     = "test"
 	username = "root"
 	password = "12345678"
 )
@@ -1261,6 +1262,11 @@ func MergeResultTable(resp1, resp2 *Response) *Response {
 	resp1.Results[0].Series = respRow
 
 	return resp1
+}
+
+// 获取查询结果中表的数量
+func GetNumOfTable(resp *Response) int64 {
+	return int64(len(resp.Results[0].Series))
 }
 
 // GetResponseTimeRange 获取查询结果的时间范围
@@ -2927,24 +2933,28 @@ func TSCacheParameter(resp *Response) ([][]string, [][]int64, [][][]byte) {
 	return tag_field, field_len, field_value
 }
 
-func CombinationTagValues(tagValues [][]string, results [][]string, single_result *[]string, index int, count int) [][]string {
-	if index == len(tagValues) {
-		tmp := make([]string, 0)
-		for _, val := range *single_result {
-			tmp = append(tmp, val)
+var combinations []string
+
+func CombinationTagValues(allTagStr [][]string) []string {
+	if len(allTagStr) == 0 {
+		return []string{}
+	}
+	combinations = []string{}
+	backtrack(allTagStr, 0, "")
+	slices.Sort(combinations)
+	return combinations
+}
+
+func backtrack(allTagStr [][]string, index int, combination string) {
+	if index == len(allTagStr) {
+		combinations = append(combinations, combination)
+	} else {
+		tagStr := allTagStr[index]
+		valCounts := len(tagStr)
+		for i := 0; i < valCounts; i++ {
+			backtrack(allTagStr, index+1, combination+","+string(tagStr[i]))
 		}
-		results = append(results, tmp)
-		*single_result = slices.Delete(*single_result, len(*single_result)-count, len(*single_result))
-		count++
-		return results
 	}
-
-	for _, val := range tagValues[index] {
-		*single_result = append(*single_result, val)
-		results = CombinationTagValues(tagValues, results, single_result, index+1, count)
-	}
-
-	return results
 }
 
 func IntegrationSM(measurementName string, tagConds []string, tags []string) string {
@@ -2981,19 +2991,49 @@ func IntegrationSM(measurementName string, tagConds []string, tags []string) str
 	table_num := 1 // 结果中的子表数量
 	tagStr := make([]string, 0)
 	allTagStr := make([][]string, 0)
-	for key, val := range tagValues {
+	for _, val := range tagValues {
 		table_num *= len(val)
 		for _, v := range val {
-			//tmp := fmt.Sprintf("%s=%s", key, v)
+			tmp := fmt.Sprintf("%s.%s", measurementName, v)
 			tagStr = append(tagStr, tmp)
 		}
 		allTagStr = append(allTagStr, tagStr)
 	}
+	groupByTags := CombinationTagValues(allTagStr)
 	result += "{"
-	// 把两种 tag 组合成 SM 字段
-	//for i := range tagConds {
-	//
-	//}
+	//把两种 tag 组合成 SM 字段
+	if len(tagConds) > 0 && len(groupByTags) > 0 {
+		for i := range tagConds {
+			for j := range groupByTags {
+				tmp := ""
+				if strings.Compare(tagConds[i], groupByTags[j]) >= 0 {
+					tmp = fmt.Sprintf("%s.%s%s", measurementName, tagConds[i], groupByTags[j])
+				} else {
+					groupByTags[j] = groupByTags[j][1:len(groupByTags[j])]
+					groupByTags[j] += ","
+					tmp = fmt.Sprintf("%s%s.%s", groupByTags[j], measurementName, tagConds[i])
+				}
+				result += fmt.Sprintf("(%s)", tmp)
+			}
+		}
+	} else if len(tagConds) == 0 && len(groupByTags) > 0 {
+		for j := range groupByTags {
+			tmp := fmt.Sprintf("%s", groupByTags[j])
+			tmp = tmp[1:len(tmp)]
+			result += fmt.Sprintf("(%s)", tmp)
+		}
+	} else if len(tagConds) > 0 && len(groupByTags) == 0 {
+		result += "("
+		tmp := ""
+		for i := range tagConds {
+			tmp = fmt.Sprintf("%s.%s,", measurementName, tagConds[i])
+			result += fmt.Sprintf("%s", tmp)
+		}
+		result = result[:len(result)-1]
+		result += ")"
+	} else {
+		result += fmt.Sprintf("(%s.empty)", measurementName)
+	}
 
 	result += "}"
 	return result
@@ -3082,7 +3122,7 @@ func FieldsAndAggregation(queryString string, measurementName string) (string, s
 		for key := range fieldMap {
 			fields = append(fields, key)
 		}
-
+		sort.Strings(fields)
 	} else if strings.IndexAny(singleField[0], "(") <= 0 && strings.IndexAny(singleField[0], "*") >= 0 { // 没有聚合函数，有通配符
 		aggr = "empty"
 		/* 获取列名 */
@@ -3098,7 +3138,7 @@ func FieldsAndAggregation(queryString string, measurementName string) (string, s
 				}
 			}
 		}
-		slices.Sort(fields)
+		sort.Strings(fields)
 		fields = slices.Compact(fields)
 
 	} else { // 没有聚合函数， 没有通配符
@@ -3108,7 +3148,7 @@ func FieldsAndAggregation(queryString string, measurementName string) (string, s
 		}
 		fields = append(fields, singleField...)
 	}
-
+	//slices.Sort(fields)
 	/* 获取每一列的数据类型 */
 	fieldMap := Fields[measurementName]
 	for i := range fields {
@@ -3208,12 +3248,14 @@ func MeasurementName(queryString string) string {
 func GetSemanticSegment(queryString string) string {
 	result := ""
 
-	//measurement := MeasurementName(queryString)
-	//SP, tagConds := PredicatesAndTagConditions(queryString, measurement, TagKV)
-	//fields, aggr := FieldsAndAggregation(queryString, measurement)
-	//tags := GroupByTags(queryString, measurement)
-	//
-	//Interval := GetInterval(queryString)
+	measurement := MeasurementName(queryString)
+	SP, tagConds := PredicatesAndTagConditions(queryString, measurement, TagKV)
+	fields, aggr := FieldsAndAggregation(queryString, measurement)
+	tags := GroupByTags(queryString, measurement)
+	interval := GetInterval(queryString)
+	SM := IntegrationSM(measurement, tagConds, tags)
+
+	result = fmt.Sprintf("%s#{%s}#%s#{%s,%s}", SM, fields, SP, aggr, interval)
 
 	return result
 }
@@ -3250,12 +3292,17 @@ func GetQueryTimeRange(queryString string) (int64, int64) {
 	return start_time, end_time
 }
 
-// 用 "?" 替换查询语句的时间范围，重构为查询模版
-func TimeReplace(queryString string) string {
+// 用 "?" 替换查询语句的时间范围，重新排列符号，重构为查询模版
+func GetQueryTemplate(queryString string) string {
+	/* 替换时间 */
 	reg := regexp.MustCompile("\\'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z\\'")
 	replacement := "?"
-
 	result := reg.ReplaceAll([]byte(queryString), []byte(replacement))
+
+	/* todo 替换符号，使模版的第一个时间判断符号是 >= , 第二个是 < */
+	//reg := regexp.MustCompile("\\'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z\\'")
+	//replacement := "?"
+
 	return string(result)
 }
 
@@ -3268,17 +3315,77 @@ func TimeReplace(queryString string) string {
 	5. 客户端把剩余数据存入 cache 系统
 */
 func IntegratedClient(queryString string) {
-	///* 原始查询语句的时间范围 */
-	//startTime, endTime := GetQueryTimeRange(queryString) // 当查询的时间只有一半时，另一个值为 -1; 当查询时间为 "=" 时，两值相等
-	//
-	///* 原始查询语句替换掉时间之后的的模版 */
-	//queryTemplate := TimeReplace(queryString) // 时间用 '?' 代替
-	//
-	///* 构造语义段 */
-	//// todo
-	//
-	///* 向 cache 查询数据 */
-	//mc.Get()
+	/* 原始查询语句的时间范围 */
+	startTime, endTime := GetQueryTimeRange(queryString) // 当查询的时间只有一半时，另一个值为 -1; 当查询时间为 "=" 时，两值相等
+
+	/* 原始查询语句替换掉时间之后的的模版 */
+	queryTemplate := GetQueryTemplate(queryString) // 时间用 '?' 代替
+	QueryTemplates[queryTemplate] = 1              // 存入全局 map
+
+	/* 构造语义段 */
+	semanticSegment := GetSemanticSegment(queryString)
+
+	/* 向 cache 查询数据 */
+	values, _, err := mc.Get(semanticSegment, startTime, endTime)
+	if err == memcache.ErrCacheMiss {
+		log.Printf("Key not found in cache")
+	} else if err != nil {
+		log.Fatalf("Error getting value: %v", err)
+	} else {
+		log.Printf("GET.")
+	}
+
+	/* 把查询结果从字节流转换成 Response 结构 */
+	convertedResponse := ByteArrayToResponse(values)
+
+	/* 从cache返回的数据的时间范围 */
+	recv_start_time, recv_end_time := GetResponseTimeRange(convertedResponse)
+
+	/* 向数据库查询剩余数据 */
+	var remainResponse *Response
+	var remainQuery string
+	if recv_start_time > startTime {
+
+		remain_start_time_string := TimeInt64ToString(startTime) // todo 把 int64 类型的时间转换成 RFC3339 格式的时间戳，替换到查询模版上
+
+		remain_end_time_string := TimeInt64ToString(recv_start_time)
+
+		remainQuery = strings.Replace(queryTemplate, "?", remain_start_time_string, 1)
+		remainQuery = strings.Replace(remainQuery, "?", remain_end_time_string, 1)
+
+		q := NewQuery(remainQuery, MyDB, "ns")
+		remainResponse, _ = c.Query(q)
+	} else if recv_end_time < endTime {
+		endTime += 1 // 查询中的结束时间用的是 "<"
+
+		remain_start_time_string := TimeInt64ToString(recv_end_time)
+
+		remain_end_time_string := TimeInt64ToString(endTime)
+
+		remainQuery = strings.Replace(queryTemplate, "?", "'"+remain_start_time_string+"'", 1)
+		remainQuery = strings.Replace(remainQuery, "?", "'"+remain_end_time_string+"'", 1)
+
+		q := NewQuery(remainQuery, MyDB, "ns")
+		remainResponse, _ = c.Query(q)
+	}
+
+	/* 把剩余数据存入 cache */
+	if remainResponse != nil {
+		remainSemanticSegment := GetSemanticSegment(remainQuery)
+		remain_start_time, remain_end_time := GetResponseTimeRange(remainResponse)
+		numOfTab := GetNumOfTable(remainResponse)
+		remainValues := remainResponse.ToByteArray(remainQuery)
+
+		err = mc.Set(&memcache.Item{Key: remainSemanticSegment, Value: remainValues, Time_start: remain_start_time, Time_end: remain_end_time, NumOfTables: numOfTab})
+		if err != nil {
+			log.Fatalf("Error setting value: %v", err)
+		} else {
+			log.Printf("STORED.")
+		}
+	}
+
+	//fmt.Println(values)
+	//fmt.Println(convertedResponse.ToString())
 
 }
 

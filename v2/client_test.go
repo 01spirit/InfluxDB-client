@@ -4443,13 +4443,82 @@ func TestTSCacheByteToValue(t *testing.T) {
 	}
 }
 
+func TestIntegrationSM(t *testing.T) {
+	tests := []struct {
+		name        string
+		queryString string
+		expected    string
+	}{
+		{
+			name:        "SF SP",
+			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek'",
+			expected:    "{(h2o_quality.location=coyote_creek)}",
+		},
+		{
+			name:        "SF SP",
+			queryString: "SELECT index FROM h2o_quality WHERE randtag='1' AND location='coyote_creek' AND index>50 GROUP BY randtag",
+			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=1)}",
+		},
+		{
+			name:        "SM SF SP ST",
+			queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag",
+			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=1)(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)(h2o_quality.location=coyote_creek,h2o_quality.randtag=3)}",
+		},
+		{
+			name:        "SM SF SP ST SG",
+			queryString: "SELECT MAX(water_level) FROM h2o_feet WHERE location='coyote_creek' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY location,time(12m)",
+			expected:    "{(h2o_feet.location=coyote_creek)}",
+		},
+		{
+			name:        "three fields without aggr",
+			queryString: "SELECT index,location,randtag FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z'",
+			expected:    "{(h2o_quality.empty)}",
+		},
+		{
+			name:        "SM three fields without aggr",
+			queryString: "SELECT index,location,randtag FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag",
+			expected:    "{(h2o_quality.randtag=1)(h2o_quality.randtag=2)(h2o_quality.randtag=3)}",
+		},
+		{
+			name:        "SM SP three fields without aggr",
+			queryString: "SELECT index,location,randtag FROM h2o_quality WHERE location='coyote_creek' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag,location",
+			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=1)(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)(h2o_quality.location=coyote_creek,h2o_quality.randtag=3)}",
+		},
+		{
+			name:        "SP SG aggregation and three predicates",
+			queryString: "SELECT COUNT(index) FROM h2o_quality WHERE location='coyote_creek' AND randtag='2' AND index>50 AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag,location,time(10s)",
+			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)}",
+		},
+		{
+			name:        "SP SG aggregation and three predicates",
+			queryString: "SELECT COUNT(index) FROM h2o_quality WHERE location='coyote_creek' AND randtag='2' AND index>50 AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY time(10s)",
+			expected:    "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)}",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			measurement := MeasurementName(tt.queryString)
+			_, tagConds := PredicatesAndTagConditions(tt.queryString, measurement, TagKV)
+			//fields, aggr := FieldsAndAggregation(queryString, measurement)
+			tags := GroupByTags(tt.queryString, measurement)
+			//
+			//Interval := GetInterval(queryString)
+
+			ss := IntegrationSM(measurement, tagConds, tags)
+			//fmt.Println(ss)
+			if strings.Compare(ss, tt.expected) != 0 {
+				t.Errorf("samantic segment:\t%s", ss)
+				t.Errorf("expected:\t%s", tt.expected)
+			}
+		})
+	}
+}
+
 func TestCombinationTagValues(t *testing.T) {
 	//tagConds := []string{"a=1", "b=2", "c=3"}
 	tagValues := [][]string{{"1", "2"}, {"3", "4", "5"}, {"6", "7", "8"}}
-	result := make([][]string, 0)
-	single_result := make([]string, 0)
-	count := []int{1}
-	result = CombinationTagValues(tagValues, result, &single_result, 0, 1)
+	result := make([]string, 0)
+	result = CombinationTagValues(tagValues)
 	fmt.Println(result)
 }
 
@@ -4499,6 +4568,110 @@ func TestGroupByTags(t *testing.T) {
 				}
 			}
 			//fmt.Println()
+		})
+	}
+}
+
+func TestGetSemanticSegment(t *testing.T) {
+	tests := []struct {
+		name        string
+		queryString string
+		expected    string
+	}{
+		{
+			name:        "1 1-1-T 直接查询",
+			queryString: "select usage_guest from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:00:20Z' and hostname='host_0'",
+			expected:    "{(cpu.hostname=host_0)}#{usage_guest[float64]}#{empty}#{empty,empty}",
+		},
+		{
+			name:        "1 1-1-T MAX",
+			queryString: "select max(usage_guest) from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:02:00Z' and hostname='host_0' group by time(1m)",
+			expected:    "{(cpu.hostname=host_0)}#{usage_guest[float64]}#{empty}#{max,1m}",
+		},
+		{
+			name:        "1 1-1-T MEAN",
+			queryString: "select mean(usage_guest) from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:02:00Z' and hostname='host_0' group by time(1m)",
+			expected:    "{(cpu.hostname=host_0)}#{usage_guest[float64]}#{empty}#{mean,1m}",
+		},
+		{
+			name:        "2 3-1-T 直接查询",
+			queryString: "select usage_guest,usage_nice,usage_guest_nice from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:00:20Z' and hostname='host_0'",
+			expected:    "{(cpu.hostname=host_0)}#{usage_guest[float64],usage_nice[float64],usage_guest_nice[float64]}#{empty}#{empty,empty}",
+		},
+		{
+			name:        "2 3-1-T MAX",
+			queryString: "select max(usage_guest),max(usage_nice),max(usage_guest_nice) from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:02:00Z' and hostname='host_0' group by time(1m)",
+			expected:    "{(cpu.hostname=host_0)}#{usage_guest[float64],usage_nice[float64],usage_guest_nice[float64]}#{empty}#{max,1m}",
+		},
+		{
+			name:        "2 3-1-T MEAN",
+			queryString: "select mean(usage_guest),mean(usage_nice),mean(usage_guest_nice) from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:02:00Z' and hostname='host_0' group by time(1m)",
+			expected:    "{(cpu.hostname=host_0)}#{usage_guest[float64],usage_nice[float64],usage_guest_nice[float64]}#{empty}#{mean,1m}",
+		},
+		{
+			name:        "3 3-1-T 直接查询",
+			queryString: "select usage_system,usage_user,usage_guest from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:00:20Z' and hostname='host_0'",
+			expected:    "{(cpu.hostname=host_0)}#{usage_system[float64],usage_user[float64],usage_guest[float64]}#{empty}#{empty,empty}",
+		},
+		{
+			name:        "3 3-1-T MAX",
+			queryString: "select max(usage_system),max(usage_user),max(usage_guest) from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:02:00Z' and hostname='host_0' group by time(1m)",
+			expected:    "{(cpu.hostname=host_0)}#{usage_system[float64],usage_user[float64],usage_guest[float64]}#{empty}#{max,1m}",
+		},
+		{
+			name:        "3 3-1-T MEAN",
+			queryString: "select mean(usage_system),mean(usage_user),mean(usage_guest) from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:02:00Z' and hostname='host_0' group by time(1m)",
+			expected:    "{(cpu.hostname=host_0)}#{usage_system[float64],usage_user[float64],usage_guest[float64]}#{empty}#{mean,1m}",
+		},
+		{
+			name:        "4 5-1-T 直接查询",
+			queryString: "select usage_system,usage_user,usage_guest,usage_nice,usage_guest_nice from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:00:20Z' and hostname='host_0'",
+			expected:    "{(cpu.hostname=host_0)}#{usage_system[float64],usage_user[float64],usage_guest[float64],usage_nice[float64],usage_guest_nice[float64]}#{empty}#{empty,empty}",
+		},
+		{
+			name:        "4 5-1-T MAX",
+			queryString: "select max(usage_system),max(usage_user),max(usage_guest),max(usage_nice),max(usage_guest_nice) from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:02:00Z' and hostname='host_0' group by time(1m)",
+			expected:    "{(cpu.hostname=host_0)}#{usage_system[float64],usage_user[float64],usage_guest[float64],usage_nice[float64],usage_guest_nice[float64]}#{empty}#{max,1m}",
+		},
+		{
+			name:        "4 5-1-T MEAN",
+			queryString: "select mean(usage_system),mean(usage_user),mean(usage_guest),mean(usage_nice),mean(usage_guest_nice) from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:02:00Z' and hostname='host_0' group by time(1m)",
+			expected:    "{(cpu.hostname=host_0)}#{usage_system[float64],usage_user[float64],usage_guest[float64],usage_nice[float64],usage_guest_nice[float64]}#{empty}#{mean,1m}",
+		},
+		{
+			name:        "5 10-1-T 直接查询",
+			queryString: "select * from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:00:20Z' and hostname='host_0'",
+			expected:    "{(cpu.hostname=host_0)}#{arch[string],datacenter[string],hostname[string],os[string],rack[string],region[string],service[string],service_environment[string],service_version[string],team[string],usage_guest[float64],usage_guest_nice[float64],usage_idle[float64],usage_iowait[float64],usage_irq[float64],usage_nice[float64],usage_softirq[float64],usage_steal[float64],usage_system[float64],usage_user[float64]}#{empty}#{empty,empty}",
+		},
+		{
+			name:        "5 10-1-T MAX",
+			queryString: "select max(*) from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:02:00Z' and hostname='host_0' group by time(1m)",
+			expected:    "{(cpu.hostname=host_0)}#{usage_guest[float64],usage_guest_nice[float64],usage_idle[float64],usage_iowait[float64],usage_irq[float64],usage_nice[float64],usage_softirq[float64],usage_steal[float64],usage_system[float64],usage_user[float64]}#{empty}#{max,1m}",
+		},
+		{
+			name:        "5 10-1-T MEAN",
+			queryString: "select mean(*) from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:02:00Z' and hostname='host_0' group by time(1m)",
+			expected:    "{(cpu.hostname=host_0)}#{usage_guest[float64],usage_guest_nice[float64],usage_idle[float64],usage_iowait[float64],usage_irq[float64],usage_nice[float64],usage_softirq[float64],usage_steal[float64],usage_system[float64],usage_user[float64]}#{empty}#{mean,1m}",
+		},
+		{
+			name:        "6 1-1-T",
+			queryString: "select usage_guest from test..cpu where time >= '2022-01-01T09:00:00Z' and time < '2022-01-01T10:00:00Z' and hostname='host_0' and usage_guest > 99.0",
+			expected:    "{(cpu.hostname=host_0)}#{usage_guest[float64]}#{(usage_guest>99.000[float64])}#{empty,empty}",
+		},
+		{
+			name:        "t7-1",
+			queryString: "select usage_guest from test..cpu where time >= '2022-01-01T17:50:00Z' and time < '2022-01-01T18:00:00Z' and usage_guest > 99.0 group by hostname",
+			expected:    "{(cpu.hostname=host_0)(cpu.hostname=host_1)(cpu.hostname=host_2)(cpu.hostname=host_3)}#{usage_guest[float64]}#{(usage_guest>99.000[float64])}#{empty,empty}",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ss := GetSemanticSegment(tt.queryString)
+			//fmt.Println(ss)
+			if strings.Compare(ss, tt.expected) != 0 {
+				t.Errorf("samantic segment:\t%s", ss)
+				t.Errorf("expected:\t%s", tt.expected)
+			}
 		})
 	}
 }
@@ -4742,11 +4915,57 @@ func TestTimeReplace(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			replaced := TimeReplace(tt.queryString)
+			replaced := GetQueryTemplate(tt.queryString)
 
 			fmt.Println(replaced)
 		})
 	}
+}
+
+func TestIntegratedClient(t *testing.T) {
+	queryToBeGet := `select usage_system,usage_user,usage_guest,usage_nice,usage_guest_nice from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:00:20Z' and hostname='host_0'`
+
+	queryToBeSet := `select usage_system,usage_user,usage_guest,usage_nice,usage_guest_nice from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:00:10Z' and hostname='host_0'`
+
+	qm := NewQuery(queryToBeSet, MyDB, "ns")
+	respCache, _ := c.Query(qm)
+	start_time, end_time := GetResponseTimeRange(respCache)
+	numOfTab := GetNumOfTable(respCache)
+
+	semanticSegment := GetSemanticSegment(queryToBeSet)
+	respCacheByte := respCache.ToByteArray(queryToBeSet)
+	fmt.Println(respCache.ToString())
+	//fmt.Println(respCacheByte)
+
+	/* 向 cache set 0-10 的数据 */
+	err = mc.Set(&memcache.Item{Key: semanticSegment, Value: respCacheByte, Time_start: start_time, Time_end: end_time, NumOfTables: numOfTab})
+	if err != nil {
+		log.Fatalf("Error setting value: %v", err)
+	} else {
+		log.Printf("STORED.")
+	}
+
+	/* 向 cache get 0-20 的数据，缺失的数据向数据库查询并存入 cache */
+	IntegratedClient(queryToBeGet)
+
+	/* 向 cache get 0-20 的数据 */
+	qgst, qget := GetQueryTimeRange(queryToBeGet)
+	values, _, err := mc.Get(semanticSegment, qgst, qget)
+	if err == memcache.ErrCacheMiss {
+		log.Printf("Key not found in cache")
+	} else if err != nil {
+		log.Fatalf("Error getting value: %v", err)
+	} else {
+		log.Printf("GET.")
+	}
+
+	/* 把查询结果从字节流转换成 Response 结构 */
+	convertedResponse := ByteArrayToResponse(values)
+	crst, cret := GetResponseTimeRange(convertedResponse)
+	fmt.Println(convertedResponse.ToString())
+	fmt.Println(crst)
+	fmt.Println(cret)
+
 }
 
 // done 根据查询时向 client.Query() 传入的时间的参数不同，会返回string和int64的不同类型的时间戳
