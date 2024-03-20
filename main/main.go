@@ -72,17 +72,16 @@ func main() {
 		client.SetToCache(queryString)
 
 		st, et := client.GetQueryTimeRange(queryString)
-		et += 1
 		ss := client.GetSemanticSegment(queryString)
 		ss = fmt.Sprintf("%s[%d,%d]", ss, st, et)
 		items, err := mc.Get(ss)
-		log.Printf("get:%s\n", ss)
+		log.Printf("\tget:%s\n", ss)
 		if err != nil {
 			//log.Fatal(err)
 			//log.Println("NOT GET.")
 		} else {
-			log.Println("GET.")
-			fmt.Println(items.Value)
+			log.Println("\tGET.")
+			log.Println("\tget byte length:", len(items.Value))
 		}
 
 	}

@@ -2623,7 +2623,8 @@ func TimeStringToInt64(timestamp string) int64 {
 
 // 从字节数组转换回来的时间戳是 int64 ,Response 结构中存的是 string	time.RFC3339
 func TimeInt64ToString(number int64) string {
-	t := time.Unix(0, number).UTC()
+	//t := time.Unix(0, number).UTC()
+	t := time.Unix(number, 0).UTC()
 	timestamp := t.Format(time.RFC3339)
 
 	return timestamp
@@ -3281,6 +3282,7 @@ func GetQueryTimeRange(queryString string) (int64, int64) {
 
 	start_time := timeRange.MinTime().Unix()
 	end_time := timeRange.MaxTime().Unix()
+	end_time++
 
 	if start_time < (math.MinInt64 / 2) {
 		start_time = -1
@@ -3389,12 +3391,14 @@ func IntegratedClient(queryString string) {
 
 }
 
-// 根据时间尺度分割查询结果	todo
-func SplitResponseValuesByTime(resp *Response, timeSize string) [][][][]interface{} {
+// 根据时间尺度分割查询结果	返回分块后的数据，以及每块对应的查询语句时间字符串
+func SplitResponseValuesByTime(queryString string, resp *Response, timeSize string) ([][][][]interface{}, []int64, []int64) {
 	result := make([][][][]interface{}, 0)
+	starts := make([]int64, 0)
+	ends := make([]int64, 0)
 
 	if ResponseIsEmpty(resp) {
-		return nil
+		return nil, nil, nil
 	}
 
 	// 获取划分查询结果所用的时间间隔
@@ -3402,45 +3406,64 @@ func SplitResponseValuesByTime(resp *Response, timeSize string) [][][][]interfac
 	if err != nil {
 		log.Fatalln(err)
 	}
-	interval := int64(duration)
+	interval := int64(duration.Seconds())
 
 	// 查询结果的起止时间，时间跨度
-	startTime, endTime := GetResponseTimeRange(resp)
-	all_time := endTime - startTime
+	startTime, endTime := GetQueryTimeRange(queryString)
+	allTime := endTime - startTime
 
-	if all_time <= interval {
+	/* 结果的时间跨度小于要分割的时间间隔，直接返回结果 */
+	if allTime <= interval {
 		values := make([][][]interface{}, 0)
-		for _, series := range resp.Results[0].Series {
+		for _, series := range resp.Results[0].Series { // 每个子表的结果分开存
 			values = append(values, series.Values)
 		}
 		result = append(result, values)
-		return result
+		starts = append(starts, startTime)
+		ends = append(ends, endTime)
+		return result, starts, ends
 	}
-	splitNum := int((all_time + interval - 1) / interval)
 
+	// 查询结果要划分成的块数，向上取整
+	splitNum := int((allTime + interval - 1) / interval)
+	var idx int64 = 0
 	for i := 0; i < splitNum; i++ {
-		values := make([][][]interface{}, 0)
-		for j := range resp.Results[0].Series {
-			vlen := len(resp.Results[0].Series[j].Values)
-			valPerResp := ((vlen + splitNum - 1) / splitNum)
-			sIdx := i * valPerResp
-			eIdx := 0
-			if (sIdx + valPerResp) > vlen {
-				eIdx = vlen
-			} else {
-				eIdx = (sIdx + valPerResp)
-			}
-			value := resp.Results[0].Series[j].Values
-			nvalues := value[sIdx:eIdx]
-			values = append(values, nvalues)
+		valuess := make([][][]interface{}, 0)
+		tmpStartTime := startTime + interval*idx // 每块对应查询语句的起始时间
+		idx++
+		tmpEndTime := startTime + interval*idx // 每块对应的查询语句的结束时间
+		if tmpEndTime > endTime {              // 最后一块的结束时间
+			tmpEndTime = endTime
 		}
-		result = append(result, values)
+
+		starts = append(starts, tmpStartTime)
+		ends = append(ends, tmpEndTime)
+
+		for _, series := range resp.Results[0].Series {
+			values := make([][]interface{}, 0)
+			for _, vals := range series.Values {
+				timestamp := vals[0].(json.Number)
+				timestampInt, err := timestamp.Int64()
+				if err != nil {
+					log.Fatalf("%s\n%s", err.Error(), queryString)
+				}
+				if timestampInt >= tmpStartTime && timestampInt < tmpEndTime { // 比较每条数据的时间戳是否在分块的查询时间范围内，在的话就取出
+					values = append(values, vals)
+				} else if timestampInt < tmpStartTime {
+					continue
+				} else {
+					break
+				}
+			}
+			valuess = append(valuess, values)
+		}
+		result = append(result, valuess)
 	}
 
-	return result
+	return result, starts, ends
 }
 
-const TimeSize = "10m"
+const TimeSize = "14m"
 
 // 按时间尺度分块，存入 cache
 func SetToCache(queryString string) {
@@ -3449,9 +3472,9 @@ func SetToCache(queryString string) {
 	resp, _ := c.Query(qs)
 	datatype := DataTypeArrayFromResponse(resp)
 
-	valuess := SplitResponseValuesByTime(resp, TimeSize)
+	valuess, starts, ends := SplitResponseValuesByTime(queryString, resp, TimeSize)
 
-	for _, values := range valuess { // 查询结果分块
+	for i, values := range valuess { // 查询结果分块
 		//  set 分块数据	set seg[timerange] vlen	value
 		byteVal := make([]byte, 0)
 		for _, value := range values { // 每个分块的子表
@@ -3462,15 +3485,9 @@ func SetToCache(queryString string) {
 				}
 			}
 		}
-		startTime := values[0][0][0]
-		endTime := values[0][len(values[0])-1][0]
-		stnum := startTime.(json.Number)
-		st, _ := stnum.Int64()
-		ednum := endTime.(json.Number)
-		et, _ := ednum.Int64()
-		ststr := strconv.FormatInt(st, 10)
-		edstr := strconv.FormatInt(et, 10)
-		ss := fmt.Sprintf("%s[%s,%s]", semanticSegment, ststr, edstr)
+		stStr := starts[i]
+		etStr := ends[i]
+		ss := fmt.Sprintf("%s[%d,%d]", semanticSegment, stStr, etStr)
 
 		err := mc.Set(&memcache.Item{
 			Key:        ss,
@@ -3485,6 +3502,7 @@ func SetToCache(queryString string) {
 		} else {
 			log.Printf("store:%s\n", ss)
 			log.Println("STORED.")
+			log.Println("set byte length:", len(byteVal))
 		}
 	}
 

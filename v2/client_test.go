@@ -4928,10 +4928,12 @@ func TestSplitResponseByTime(t *testing.T) {
 
 	//fmt.Println(resp.ToString())
 
-	splitResp := SplitResponseValuesByTime(resp, timeChunkSize)
+	splitResp, starts, ends := SplitResponseValuesByTime(queryString, resp, timeChunkSize)
 
-	for _, sr := range splitResp {
+	for i, sr := range splitResp {
 		fmt.Println(len(sr[0]))
+		fmt.Println(starts[i])
+		fmt.Println(ends[i])
 	}
 
 }
