@@ -3,9 +3,7 @@ package client
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"github.com/InfluxDB-client/memcache"
 	"io/ioutil"
 	"log"
 	"math"
@@ -987,23 +985,23 @@ func TestClient_ReadStatementId(t *testing.T) {
 	}
 }
 
-func TestSet(t *testing.T) {
-	queryStrings := []string{
-		"SELECT randtag,index FROM h2o_quality limit 5",
-		"SELECT index,location FROM h2o_quality WHERE location='coyote_creek' AND  time >= '2019-08-18T00:00:00Z' limit 65",
-		"SELECT index,location FROM h2o_quality WHERE location='coyote_creek' AND  time >= '2019-08-18T00:00:00Z' limit 1000",
-		"SELECT index FROM h2o_quality WHERE location='coyote_creek' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag",
-		"SELECT index,location,randtag FROM h2o_quality WHERE location='coyote_creek' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag,location",
-	}
-
-	for _, qs := range queryStrings {
-		err := Set(qs, c, mc)
-		if err != nil {
-			t.Errorf(err.Error())
-		}
-	}
-
-}
+//func TestSet(t *testing.T) {
+//	queryStrings := []string{
+//		"SELECT randtag,index FROM h2o_quality limit 5",
+//		"SELECT index,location FROM h2o_quality WHERE location='coyote_creek' AND  time >= '2019-08-18T00:00:00Z' limit 65",
+//		"SELECT index,location FROM h2o_quality WHERE location='coyote_creek' AND  time >= '2019-08-18T00:00:00Z' limit 1000",
+//		"SELECT index FROM h2o_quality WHERE location='coyote_creek' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag",
+//		"SELECT index,location,randtag FROM h2o_quality WHERE location='coyote_creek' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag,location",
+//	}
+//
+//	for _, qs := range queryStrings {
+//		err := Set(qs, c, mc)
+//		if err != nil {
+//			t.Errorf(err.Error())
+//		}
+//	}
+//
+//}
 
 func TestGetFieldKeys(t *testing.T) {
 
@@ -3778,212 +3776,212 @@ func TestMergeSeries2(t *testing.T) {
 	}
 }
 
-func TestResponse_ToByteArray(t *testing.T) {
+//func TestResponse_ToByteArray(t *testing.T) {
+//
+//	//queryMemcache := "SELECT randtag,index FROM h2o_quality limit 5"
+//	queryMemcache := "SELECT index FROM h2o_quality WHERE location='coyote_creek' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag"
+//	qm := NewQuery(queryMemcache, MyDB, "")
+//	respCache, _ := c.Query(qm)
+//
+//	semanticSegment := SemanticSegment(queryMemcache, respCache)
+//	respCacheByte := respCache.ToByteArray(queryMemcache)
+//	fmt.Printf("byte array:\n%d\n\n", respCacheByte)
+//
+//	var str string
+//	str = respCache.ToString()
+//	fmt.Printf("To be set:\n%s\n\n", str)
+//
+//	err = mc.Set(&memcache.Item{Key: semanticSegment, Value: respCacheByte, Time_start: 134123, Time_end: 53421432123, NumOfTables: 1})
+//
+//	if err != nil {
+//		log.Fatalf("Error setting value: %v", err)
+//	}
+//
+//	// 从缓存中获取值
+//	itemValues, _, err := mc.Get(semanticSegment, 10, 20)
+//	if errors.Is(err, memcache.ErrCacheMiss) {
+//		log.Printf("Key not found in cache")
+//	} else if err != nil {
+//		log.Fatalf("Error getting value: %v", err)
+//	} else {
+//		//log.Printf("Value: %s", item.Value)
+//	}
+//
+//	fmt.Println("len:", len(itemValues))
+//	fmt.Printf("Get:\n")
+//	fmt.Printf("%d", itemValues)
+//
+//	fmt.Printf("\nGet equals Set:%v\n", bytes.Equal(respCacheByte, itemValues[:len(itemValues)-2]))
+//
+//	fmt.Println()
+//
+//	// 在缓存中删除值
+//	err = mc.Delete(semanticSegment)
+//	if err != nil {
+//		log.Fatalf("Error deleting value: %v", err)
+//	}
+//
+//	/* 查询结果转换成字节数组的格式如下
+//		seprateSM1 len1\r\n
+//		values
+//		seprateSM2 len2\r\n
+//		values
+//		......
+//
+//	seprateSM: 每张表的 tags 和整个查询的其余元数据组合成的 每张表的元数据	string，到空格符为止
+//	len: 每张表中数据的总字节数		int64，空格符后面的8个字节
+//	values: 数据，暂时由换行符分隔每条数据，如果需要去掉换行符，要修改的部分已在代码中标明
+//	*/
+//	// {(h2o_quality.randtag=1)}#{time[int64],index[int64]}#{(location='coyote_creek'[string])}#{empty,empty} [0 0 0 0 0 0 0 48]
+//	// 2019-08-18T00:06:00Z 66
+//	// 2019-08-18T00:18:00Z 91
+//	// 2019-08-18T00:24:00Z 29
+//	// {(h2o_quality.randtag=2)}#{time[int64],index[int64]}#{(location='coyote_creek'[string])}#{empty,empty} [0 0 0 0 0 0 0 16]
+//	// 2019-08-18T00:12:00Z 78
+//	// {(h2o_quality.randtag=3)}#{time[int64],index[int64]}#{(location='coyote_creek'[string])}#{empty,empty} [0 0 0 0 0 0 0 32]
+//	// 2019-08-18T00:00:00Z 85
+//	// 2019-08-18T00:30:00Z 75
+//}
 
-	//queryMemcache := "SELECT randtag,index FROM h2o_quality limit 5"
-	queryMemcache := "SELECT index FROM h2o_quality WHERE location='coyote_creek' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag"
-	qm := NewQuery(queryMemcache, MyDB, "")
-	respCache, _ := c.Query(qm)
+//func TestByteArrayToResponse(t *testing.T) {
+//
+//	tests := []struct {
+//		name        string
+//		queryString string
+//		expected    string
+//	}{
+//		{
+//			name:        "one table three columns",
+//			queryString: "SELECT randtag,index FROM h2o_quality limit 5",
+//			expected: "{(h2o_quality.empty)}#{randtag[string],index[int64]}#{empty}#{empty,empty} [0 0 0 0 0 0 0 205]\r\n" +
+//				"[1566000000000000000 1 41]\r\n" +
+//				"[1566000000000000000 2 99]\r\n" +
+//				"[1566000360000000000 3 11]\r\n" +
+//				"[1566000360000000000 2 56]\r\n" +
+//				"[1566000720000000000 3 65]\r\n",
+//		},
+//		{
+//			name:        "one table four columns",
+//			queryString: "SELECT randtag,index,location FROM h2o_quality limit 5",
+//			expected: "{(h2o_quality.empty_tag)}#{randtag[string],index[int64],location[string]}#{empty}#{empty,empty} [0 0 0 0 0 0 1 74]\r\n" +
+//				"[1566000000000000000 1 41 coyote_creek]\r\n" +
+//				"[1566000000000000000 2 99 santa_monica]\r\n" +
+//				"[1566000360000000000 3 11 coyote_creek]\r\n" +
+//				"[1566000360000000000 2 56 santa_monica]\r\n" +
+//				"[1566000720000000000 3 65 santa_monica]\r\n",
+//		},
+//		{ // 	在由字节数组转换为结果类型时，谓词中的tag会被错误当作GROUP BY tag; 要用谓词tag的话最好把它也写进GROUP BY tag，这样就能保证转换前后结果的结构一致
+//			name:        "one table two columns",
+//			queryString: "SELECT index,location FROM h2o_quality WHERE location='coyote_creek' AND  time >= '2019-08-18T00:00:00Z' GROUP BY location limit 5",
+//			expected: "{(h2o_quality.location=coyote_creek)}#{index[int64],location[string]}#{empty}#{empty,empty} [0 0 0 0 0 0 4 0]\r\n" +
+//				"[1566086400000000000 85]\r\n" +
+//				"[1566086760000000000 66]\r\n" +
+//				"......(共64条数据)",
+//		},
+//		//{ // Get() 的最大字节数限制 ?	和字节数无关，只能读取最多 64 条数据（怎么会和数据条数相关 ?）	去掉了Get()中的异常处理，可以正常用了，但是为什么?	把数字错误当作换行符的ASCII码处理了，导致进入了异常处理
+//		//	name:        "one table two columns without limit",
+//		//	queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek' AND  time >= '2019-08-18T00:00:00Z'",
+//		//	expected: "{(h2o_quality.empty_tag)}#{time[int64],index[int64]}#{(location='coyote_creek'[string])}#{empty,empty} [0 0 0 0 0 0 4 0]\r\n" +
+//		//		"[1566086400000000000 85]\r\n" +
+//		//		"[1566086760000000000 66]\r\n" +
+//		//		"......",
+//		//},
+//		{
+//			name:        "three tables two columns",
+//			queryString: "SELECT index FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag",
+//			expected: "{(h2o_quality.randtag=1)}#{index[int64]}#{empty}#{empty,empty} [0 0 0 0 0 0 0 48]\r\n" +
+//				"[1566086760000000000 66]\r\n" +
+//				"[1566087480000000000 91]\r\n" +
+//				"[1566087840000000000 29]\r\n" +
+//				"{(h2o_quality.randtag=2)}#{index[int64]}#{empty}#{empty,empty} [0 0 0 0 0 0 0 16]\r\n" +
+//				"[1566087120000000000 78]\r\n" +
+//				"{(h2o_quality.randtag=3)}#{index[int64]}#{empty}#{empty,empty} [0 0 0 0 0 0 0 32]\r\n" +
+//				"[1566086400000000000 85]\r\n" +
+//				"[1566088200000000000 75]\r\n",
+//		},
+//		{ // length of key out of range(309 bytes) 不能超过250字节?
+//			name:        "three tables four columns",
+//			queryString: "SELECT index,location,randtag FROM h2o_quality WHERE location='coyote_creek' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag,location",
+//			expected: "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=1)}#{index[int64],location[string],randtag[string]}#{empty}#{empty,empty} [0 0 0 0 0 0 0 198]\r\n" +
+//				"[1566086760000000000 66 coyote_creek 1]\r\n" +
+//				"[1566087480000000000 91 coyote_creek 1]\r\n" +
+//				"[1566087840000000000 29 coyote_creek 1]\r\n" +
+//				"{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)}#{index[int64],location[string],randtag[string]}#{empty}#{empty,empty} [0 0 0 0 0 0 0 66]\r\n" +
+//				"[1566087120000000000 78 coyote_creek 2]\r\n" +
+//				"{(h2o_quality.location=coyote_creek,h2o_quality.randtag=3)}#{index[int64],location[string],randtag[string]}#{empty}#{empty,empty} [0 0 0 0 0 0 0 132]\r\n" +
+//				"[1566086400000000000 85 coyote_creek 3]\r\n" +
+//				"[1566088200000000000 75 coyote_creek 3]\r\n",
+//		},
+//		{
+//			name:        "one table four columns",
+//			queryString: "SELECT index,location,randtag FROM h2o_quality WHERE location='coyote_creek' AND randtag='2' AND index>50 AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag,location",
+//			expected: "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)}#{index[int64],location[string],randtag[string]}#{(randtag='2'[string])(index>50[int64])}#{empty,empty} [0 0 0 0 0 0 0 66]\r\n" +
+//				"[1566087120000000000 78 coyote_creek 2]\r\n",
+//		},
+//		{
+//			name:        "two tables four columns",
+//			queryString: "SELECT index,location,randtag FROM h2o_quality WHERE location='coyote_creek' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag,location",
+//			expected: "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=1)}#{index[int64],location[string],randtag[string]}#{empty}#{empty,empty} [0 0 0 0 0 0 0 198]\r\n" +
+//				"[1566086760000000000 66 coyote_creek 1]\r\n" +
+//				"[1566087480000000000 91 coyote_creek 1]\r\n" +
+//				"[1566087840000000000 29 coyote_creek 1]\r\n" +
+//				"{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)}#{index[int64],location[string],randtag[string]}#{empty}#{empty,empty} [0 0 0 0 0 0 0 66]\r\n" +
+//				"[1566087120000000000 78 coyote_creek 2]\r\n" +
+//				"{(h2o_quality.location=coyote_creek,h2o_quality.randtag=3)}#{index[int64],location[string],randtag[string]}#{empty}#{empty,empty} [0 0 0 0 0 0 0 132]\r\n" +
+//				"[1566086400000000000 85 coyote_creek 3]\r\n" +
+//				"[1566088200000000000 75 coyote_creek 3]\r\n",
+//		},
+//	}
 
-	semanticSegment := SemanticSegment(queryMemcache, respCache)
-	respCacheByte := respCache.ToByteArray(queryMemcache)
-	fmt.Printf("byte array:\n%d\n\n", respCacheByte)
+//for _, tt := range tests {
+//	t.Run(tt.name, func(t *testing.T) {
+//		query := NewQuery(tt.queryString, MyDB, "ns")
+//		resp, err := c.Query(query)
+//		if err != nil {
+//			t.Errorf(err.Error())
+//		}
+//
+//		/* Set() 存入cache */
+//		semanticSegment := SemanticSegment(tt.queryString, resp)
+//		startTime, endTime := GetResponseTimeRange(resp)
+//		respString := resp.ToString()
+//		respCacheByte := resp.ToByteArray(tt.queryString)
+//		tableNumbers := int64(len(resp.Results[0].Series))
+//		err = mc.Set(&memcache.Item{Key: semanticSegment, Value: respCacheByte, Time_start: startTime, Time_end: endTime, NumOfTables: tableNumbers})
+//
+//		if err != nil {
+//			log.Fatalf("Set error: %v", err)
+//		}
+//		fmt.Println("Set successfully")
+//
+//		/* Get() 从cache取出 */
+//		valueBytes, _, err := mc.Get(semanticSegment, startTime, endTime)
+//		if err == memcache.ErrCacheMiss {
+//			log.Printf("Key not found in cache")
+//		} else if err != nil {
+//			log.Fatalf("Error getting value: %v", err)
+//		}
+//		fmt.Println("Get successfully")
+//
+//		/* 字节数组转换为结果类型 */
+//		respConverted := ByteArrayToResponse(valueBytes)
+//		fmt.Println("Convert successfully")
+//
+//		if strings.Compare(respString, respConverted.ToString()) != 0 {
+//			t.Errorf("fail to convert:different response")
+//		}
+//		fmt.Println("Same before and after convert")
+//
+//		fmt.Println("resp:\n", *resp)
+//		fmt.Println("resp converted:\n", *respConverted)
+//		fmt.Println("resp:\n", resp.ToString())
+//		fmt.Println("resp converted:\n", respConverted.ToString())
+//		fmt.Println()
+//		fmt.Println()
+//	})
+//}
 
-	var str string
-	str = respCache.ToString()
-	fmt.Printf("To be set:\n%s\n\n", str)
-
-	err = mc.Set(&memcache.Item{Key: semanticSegment, Value: respCacheByte, Time_start: 134123, Time_end: 53421432123, NumOfTables: 1})
-
-	if err != nil {
-		log.Fatalf("Error setting value: %v", err)
-	}
-
-	// 从缓存中获取值
-	itemValues, _, err := mc.Get(semanticSegment, 10, 20)
-	if errors.Is(err, memcache.ErrCacheMiss) {
-		log.Printf("Key not found in cache")
-	} else if err != nil {
-		log.Fatalf("Error getting value: %v", err)
-	} else {
-		//log.Printf("Value: %s", item.Value)
-	}
-
-	fmt.Println("len:", len(itemValues))
-	fmt.Printf("Get:\n")
-	fmt.Printf("%d", itemValues)
-
-	fmt.Printf("\nGet equals Set:%v\n", bytes.Equal(respCacheByte, itemValues[:len(itemValues)-2]))
-
-	fmt.Println()
-
-	// 在缓存中删除值
-	err = mc.Delete(semanticSegment)
-	if err != nil {
-		log.Fatalf("Error deleting value: %v", err)
-	}
-
-	/* 查询结果转换成字节数组的格式如下
-		seprateSM1 len1\r\n
-		values
-		seprateSM2 len2\r\n
-		values
-		......
-
-	seprateSM: 每张表的 tags 和整个查询的其余元数据组合成的 每张表的元数据	string，到空格符为止
-	len: 每张表中数据的总字节数		int64，空格符后面的8个字节
-	values: 数据，暂时由换行符分隔每条数据，如果需要去掉换行符，要修改的部分已在代码中标明
-	*/
-	// {(h2o_quality.randtag=1)}#{time[int64],index[int64]}#{(location='coyote_creek'[string])}#{empty,empty} [0 0 0 0 0 0 0 48]
-	// 2019-08-18T00:06:00Z 66
-	// 2019-08-18T00:18:00Z 91
-	// 2019-08-18T00:24:00Z 29
-	// {(h2o_quality.randtag=2)}#{time[int64],index[int64]}#{(location='coyote_creek'[string])}#{empty,empty} [0 0 0 0 0 0 0 16]
-	// 2019-08-18T00:12:00Z 78
-	// {(h2o_quality.randtag=3)}#{time[int64],index[int64]}#{(location='coyote_creek'[string])}#{empty,empty} [0 0 0 0 0 0 0 32]
-	// 2019-08-18T00:00:00Z 85
-	// 2019-08-18T00:30:00Z 75
-}
-
-func TestByteArrayToResponse(t *testing.T) {
-
-	tests := []struct {
-		name        string
-		queryString string
-		expected    string
-	}{
-		{
-			name:        "one table three columns",
-			queryString: "SELECT randtag,index FROM h2o_quality limit 5",
-			expected: "{(h2o_quality.empty)}#{randtag[string],index[int64]}#{empty}#{empty,empty} [0 0 0 0 0 0 0 205]\r\n" +
-				"[1566000000000000000 1 41]\r\n" +
-				"[1566000000000000000 2 99]\r\n" +
-				"[1566000360000000000 3 11]\r\n" +
-				"[1566000360000000000 2 56]\r\n" +
-				"[1566000720000000000 3 65]\r\n",
-		},
-		{
-			name:        "one table four columns",
-			queryString: "SELECT randtag,index,location FROM h2o_quality limit 5",
-			expected: "{(h2o_quality.empty_tag)}#{randtag[string],index[int64],location[string]}#{empty}#{empty,empty} [0 0 0 0 0 0 1 74]\r\n" +
-				"[1566000000000000000 1 41 coyote_creek]\r\n" +
-				"[1566000000000000000 2 99 santa_monica]\r\n" +
-				"[1566000360000000000 3 11 coyote_creek]\r\n" +
-				"[1566000360000000000 2 56 santa_monica]\r\n" +
-				"[1566000720000000000 3 65 santa_monica]\r\n",
-		},
-		{ // 	在由字节数组转换为结果类型时，谓词中的tag会被错误当作GROUP BY tag; 要用谓词tag的话最好把它也写进GROUP BY tag，这样就能保证转换前后结果的结构一致
-			name:        "one table two columns",
-			queryString: "SELECT index,location FROM h2o_quality WHERE location='coyote_creek' AND  time >= '2019-08-18T00:00:00Z' GROUP BY location limit 5",
-			expected: "{(h2o_quality.location=coyote_creek)}#{index[int64],location[string]}#{empty}#{empty,empty} [0 0 0 0 0 0 4 0]\r\n" +
-				"[1566086400000000000 85]\r\n" +
-				"[1566086760000000000 66]\r\n" +
-				"......(共64条数据)",
-		},
-		//{ // Get() 的最大字节数限制 ?	和字节数无关，只能读取最多 64 条数据（怎么会和数据条数相关 ?）	去掉了Get()中的异常处理，可以正常用了，但是为什么?	把数字错误当作换行符的ASCII码处理了，导致进入了异常处理
-		//	name:        "one table two columns without limit",
-		//	queryString: "SELECT index FROM h2o_quality WHERE location='coyote_creek' AND  time >= '2019-08-18T00:00:00Z'",
-		//	expected: "{(h2o_quality.empty_tag)}#{time[int64],index[int64]}#{(location='coyote_creek'[string])}#{empty,empty} [0 0 0 0 0 0 4 0]\r\n" +
-		//		"[1566086400000000000 85]\r\n" +
-		//		"[1566086760000000000 66]\r\n" +
-		//		"......",
-		//},
-		{
-			name:        "three tables two columns",
-			queryString: "SELECT index FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag",
-			expected: "{(h2o_quality.randtag=1)}#{index[int64]}#{empty}#{empty,empty} [0 0 0 0 0 0 0 48]\r\n" +
-				"[1566086760000000000 66]\r\n" +
-				"[1566087480000000000 91]\r\n" +
-				"[1566087840000000000 29]\r\n" +
-				"{(h2o_quality.randtag=2)}#{index[int64]}#{empty}#{empty,empty} [0 0 0 0 0 0 0 16]\r\n" +
-				"[1566087120000000000 78]\r\n" +
-				"{(h2o_quality.randtag=3)}#{index[int64]}#{empty}#{empty,empty} [0 0 0 0 0 0 0 32]\r\n" +
-				"[1566086400000000000 85]\r\n" +
-				"[1566088200000000000 75]\r\n",
-		},
-		{ // length of key out of range(309 bytes) 不能超过250字节?
-			name:        "three tables four columns",
-			queryString: "SELECT index,location,randtag FROM h2o_quality WHERE location='coyote_creek' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag,location",
-			expected: "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=1)}#{index[int64],location[string],randtag[string]}#{empty}#{empty,empty} [0 0 0 0 0 0 0 198]\r\n" +
-				"[1566086760000000000 66 coyote_creek 1]\r\n" +
-				"[1566087480000000000 91 coyote_creek 1]\r\n" +
-				"[1566087840000000000 29 coyote_creek 1]\r\n" +
-				"{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)}#{index[int64],location[string],randtag[string]}#{empty}#{empty,empty} [0 0 0 0 0 0 0 66]\r\n" +
-				"[1566087120000000000 78 coyote_creek 2]\r\n" +
-				"{(h2o_quality.location=coyote_creek,h2o_quality.randtag=3)}#{index[int64],location[string],randtag[string]}#{empty}#{empty,empty} [0 0 0 0 0 0 0 132]\r\n" +
-				"[1566086400000000000 85 coyote_creek 3]\r\n" +
-				"[1566088200000000000 75 coyote_creek 3]\r\n",
-		},
-		{
-			name:        "one table four columns",
-			queryString: "SELECT index,location,randtag FROM h2o_quality WHERE location='coyote_creek' AND randtag='2' AND index>50 AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag,location",
-			expected: "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)}#{index[int64],location[string],randtag[string]}#{(randtag='2'[string])(index>50[int64])}#{empty,empty} [0 0 0 0 0 0 0 66]\r\n" +
-				"[1566087120000000000 78 coyote_creek 2]\r\n",
-		},
-		{
-			name:        "two tables four columns",
-			queryString: "SELECT index,location,randtag FROM h2o_quality WHERE location='coyote_creek' AND time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY randtag,location",
-			expected: "{(h2o_quality.location=coyote_creek,h2o_quality.randtag=1)}#{index[int64],location[string],randtag[string]}#{empty}#{empty,empty} [0 0 0 0 0 0 0 198]\r\n" +
-				"[1566086760000000000 66 coyote_creek 1]\r\n" +
-				"[1566087480000000000 91 coyote_creek 1]\r\n" +
-				"[1566087840000000000 29 coyote_creek 1]\r\n" +
-				"{(h2o_quality.location=coyote_creek,h2o_quality.randtag=2)}#{index[int64],location[string],randtag[string]}#{empty}#{empty,empty} [0 0 0 0 0 0 0 66]\r\n" +
-				"[1566087120000000000 78 coyote_creek 2]\r\n" +
-				"{(h2o_quality.location=coyote_creek,h2o_quality.randtag=3)}#{index[int64],location[string],randtag[string]}#{empty}#{empty,empty} [0 0 0 0 0 0 0 132]\r\n" +
-				"[1566086400000000000 85 coyote_creek 3]\r\n" +
-				"[1566088200000000000 75 coyote_creek 3]\r\n",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			query := NewQuery(tt.queryString, MyDB, "ns")
-			resp, err := c.Query(query)
-			if err != nil {
-				t.Errorf(err.Error())
-			}
-
-			/* Set() 存入cache */
-			semanticSegment := SemanticSegment(tt.queryString, resp)
-			startTime, endTime := GetResponseTimeRange(resp)
-			respString := resp.ToString()
-			respCacheByte := resp.ToByteArray(tt.queryString)
-			tableNumbers := int64(len(resp.Results[0].Series))
-			err = mc.Set(&memcache.Item{Key: semanticSegment, Value: respCacheByte, Time_start: startTime, Time_end: endTime, NumOfTables: tableNumbers})
-
-			if err != nil {
-				log.Fatalf("Set error: %v", err)
-			}
-			fmt.Println("Set successfully")
-
-			/* Get() 从cache取出 */
-			valueBytes, _, err := mc.Get(semanticSegment, startTime, endTime)
-			if err == memcache.ErrCacheMiss {
-				log.Printf("Key not found in cache")
-			} else if err != nil {
-				log.Fatalf("Error getting value: %v", err)
-			}
-			fmt.Println("Get successfully")
-
-			/* 字节数组转换为结果类型 */
-			respConverted := ByteArrayToResponse(valueBytes)
-			fmt.Println("Convert successfully")
-
-			if strings.Compare(respString, respConverted.ToString()) != 0 {
-				t.Errorf("fail to convert:different response")
-			}
-			fmt.Println("Same before and after convert")
-
-			fmt.Println("resp:\n", *resp)
-			fmt.Println("resp converted:\n", *respConverted)
-			fmt.Println("resp:\n", resp.ToString())
-			fmt.Println("resp converted:\n", respConverted.ToString())
-			fmt.Println()
-			fmt.Println()
-		})
-	}
-
-}
+//}
 
 func TestBoolToByteArray(t *testing.T) {
 	bvs := []bool{true, false}
@@ -4922,51 +4920,86 @@ func TestTimeReplace(t *testing.T) {
 	}
 }
 
-func TestIntegratedClient(t *testing.T) {
-	queryToBeGet := `select usage_system,usage_user,usage_guest,usage_nice,usage_guest_nice from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:00:20Z' and hostname='host_0'`
+func TestSplitResponseByTime(t *testing.T) {
+	queryString := `select usage_system,usage_user,usage_guest,usage_nice,usage_guest_nice from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T03:20:00Z' and hostname='host_0'`
+	qs := NewQuery(queryString, MyDB, "ns")
+	resp, _ := c.Query(qs)
+	timeChunkSize := "1h"
 
-	queryToBeSet := `select usage_system,usage_user,usage_guest,usage_nice,usage_guest_nice from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:00:10Z' and hostname='host_0'`
+	//fmt.Println(resp.ToString())
 
-	qm := NewQuery(queryToBeSet, MyDB, "ns")
-	respCache, _ := c.Query(qm)
-	start_time, end_time := GetResponseTimeRange(respCache)
-	numOfTab := GetNumOfTable(respCache)
+	splitResp := SplitResponseValuesByTime(resp, timeChunkSize)
 
-	semanticSegment := GetSemanticSegment(queryToBeSet)
-	respCacheByte := respCache.ToByteArray(queryToBeSet)
-	fmt.Println(respCache.ToString())
-	//fmt.Println(respCacheByte)
-
-	/* 向 cache set 0-10 的数据 */
-	err = mc.Set(&memcache.Item{Key: semanticSegment, Value: respCacheByte, Time_start: start_time, Time_end: end_time, NumOfTables: numOfTab})
-	if err != nil {
-		log.Fatalf("Error setting value: %v", err)
-	} else {
-		log.Printf("STORED.")
+	for _, sr := range splitResp {
+		fmt.Println(len(sr[0]))
 	}
-
-	/* 向 cache get 0-20 的数据，缺失的数据向数据库查询并存入 cache */
-	IntegratedClient(queryToBeGet)
-
-	/* 向 cache get 0-20 的数据 */
-	qgst, qget := GetQueryTimeRange(queryToBeGet)
-	values, _, err := mc.Get(semanticSegment, qgst, qget)
-	if err == memcache.ErrCacheMiss {
-		log.Printf("Key not found in cache")
-	} else if err != nil {
-		log.Fatalf("Error getting value: %v", err)
-	} else {
-		log.Printf("GET.")
-	}
-
-	/* 把查询结果从字节流转换成 Response 结构 */
-	convertedResponse := ByteArrayToResponse(values)
-	crst, cret := GetResponseTimeRange(convertedResponse)
-	fmt.Println(convertedResponse.ToString())
-	fmt.Println(crst)
-	fmt.Println(cret)
 
 }
+
+func TestSetToCache(t *testing.T) {
+	queryString := `select usage_guest from test..cpu where time >= '2022-01-02T09:40:00Z' and time < '2022-01-02T10:10:00Z' and hostname='host_0'`
+
+	SetToCache(queryString)
+	st, et := GetQueryTimeRange(queryString)
+	ss := GetSemanticSegment(queryString)
+	ss = fmt.Sprintf("%s[%d,%d]", ss, st, et)
+	items, err := mc.Get(ss)
+	if err != nil {
+		log.Fatal(err)
+	} else {
+		log.Println("GET.")
+	}
+
+	response := ByteArrayToResponse(items.Value)
+	fmt.Println(response.ToString())
+
+}
+
+//func TestIntegratedClient(t *testing.T) {
+//	queryToBeGet := `select usage_system,usage_user,usage_guest,usage_nice,usage_guest_nice from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:00:20Z' and hostname='host_0'`
+//
+//	queryToBeSet := `select usage_system,usage_user,usage_guest,usage_nice,usage_guest_nice from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:00:10Z' and hostname='host_0'`
+//
+//	qm := NewQuery(queryToBeSet, MyDB, "ns")
+//	respCache, _ := c.Query(qm)
+//	start_time, end_time := GetResponseTimeRange(respCache)
+//	numOfTab := GetNumOfTable(respCache)
+//
+//	semanticSegment := GetSemanticSegment(queryToBeSet)
+//	respCacheByte := respCache.ToByteArray(queryToBeSet)
+//	fmt.Println(respCache.ToString())
+//	//fmt.Println(respCacheByte)
+//
+//	/* 向 cache set 0-10 的数据 */
+//	err = mc.Set(&memcache.Item{Key: semanticSegment, Value: respCacheByte, Time_start: start_time, Time_end: end_time, NumOfTables: numOfTab})
+//	if err != nil {
+//		log.Fatalf("Error setting value: %v", err)
+//	} else {
+//		log.Printf("STORED.")
+//	}
+//
+//	/* 向 cache get 0-20 的数据，缺失的数据向数据库查询并存入 cache */
+//	IntegratedClient(queryToBeGet)
+//
+//	/* 向 cache get 0-20 的数据 */
+//	qgst, qget := GetQueryTimeRange(queryToBeGet)
+//	values, _, err := mc.Get(semanticSegment, qgst, qget)
+//	if err == memcache.ErrCacheMiss {
+//		log.Printf("Key not found in cache")
+//	} else if err != nil {
+//		log.Fatalf("Error getting value: %v", err)
+//	} else {
+//		log.Printf("GET.")
+//	}
+//
+//	/* 把查询结果从字节流转换成 Response 结构 */
+//	convertedResponse := ByteArrayToResponse(values)
+//	crst, cret := GetResponseTimeRange(convertedResponse)
+//	fmt.Println(convertedResponse.ToString())
+//	fmt.Println(crst)
+//	fmt.Println(cret)
+//
+//}
 
 // done 根据查询时向 client.Query() 传入的时间的参数不同，会返回string和int64的不同类型的时间戳
 /*

@@ -9,7 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/InfluxDB-client/memcache"
+	"github.com/bradfitz/gomemcache/memcache"
 	"io"
 	"io/ioutil"
 	"log"
@@ -41,7 +41,7 @@ var c, err = NewHTTPClient(HTTPConfig{
 })
 
 // 连接cache
-var mc = memcache.New("localhost:11214")
+var mc = memcache.New("localhost:11213")
 
 // 数据库中所有表的tag和field
 var TagKV = GetTagKV(c, MyDB)
@@ -835,37 +835,37 @@ func (r *ChunkedResponse) Close() error {
 	return r.duplex.Close()
 }
 
-func Set(queryString string, c Client, mc *memcache.Client) error {
-	query := NewQuery(queryString, MyDB, "ns")
-	resp, err := c.Query(query)
-	if err != nil {
-		return err
-	}
-
-	semanticSegment := SemanticSegment(queryString, resp)
-	startTime, endTime := GetResponseTimeRange(resp)
-	respCacheByte := resp.ToByteArray(queryString)
-	tableNumbers := int64(len(resp.Results[0].Series))
-
-	item := memcache.Item{
-		Key:         semanticSegment,
-		Value:       respCacheByte,
-		Flags:       0,
-		Expiration:  0,
-		CasID:       0,
-		Time_start:  startTime,
-		Time_end:    endTime,
-		NumOfTables: tableNumbers,
-	}
-
-	err = mc.Set(&item)
-
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
+//func Set(queryString string, c Client, mc *memcache.Client) error {
+//	query := NewQuery(queryString, MyDB, "ns")
+//	resp, err := c.Query(query)
+//	if err != nil {
+//		return err
+//	}
+//
+//	semanticSegment := SemanticSegment(queryString, resp)
+//	startTime, endTime := GetResponseTimeRange(resp)
+//	respCacheByte := resp.ToByteArray(queryString)
+//	tableNumbers := int64(len(resp.Results[0].Series))
+//
+//	item := memcache.Item{
+//		Key:         semanticSegment,
+//		Value:       respCacheByte,
+//		Flags:       0,
+//		Expiration:  0,
+//		CasID:       0,
+//		Time_start:  startTime,
+//		Time_end:    endTime,
+//		NumOfTables: tableNumbers,
+//	}
+//
+//	err = mc.Set(&item)
+//
+//	if err != nil {
+//		return err
+//	}
+//
+//	return nil
+//}
 
 /*
 Merge
@@ -1349,31 +1349,31 @@ func GetFieldKeys(c Client, database string) map[string]map[string]string {
 		fieldMap[measurementName] = fdMap
 	}
 
-	for key := range fieldMap {
-		query := fmt.Sprintf("select *::field from %s limit 1", key)
-		// 执行查询
-		q := NewQuery(query, database, "")
-		resp, err := c.Query(q)
-		if err != nil {
-			fmt.Printf("Error: %s\n", err.Error())
-			return nil
-		}
+	//for key := range fieldMap {
+	//	query := fmt.Sprintf("select *::field from %s limit 1", key)
+	//	// 执行查询
+	//	q := NewQuery(query, database, "")
+	//	resp, err := c.Query(q)
+	//	if err != nil {
+	//		fmt.Printf("Error: %s\n", err.Error())
+	//		return nil
+	//	}
+	//
+	//	// 处理查询结果
+	//	if resp.Error() != nil {
+	//		fmt.Printf("Error: %s\n", resp.Error().Error())
+	//		return nil
+	//	}
 
-		// 处理查询结果
-		if resp.Error() != nil {
-			fmt.Printf("Error: %s\n", resp.Error().Error())
-			return nil
-		}
+	//datatypes := DataTypeArrayFromResponse(resp)
+	//for i, field := range resp.Results[0].Series[0].Columns {
+	//	if i == 0 {
+	//		continue
+	//	}
+	//	fieldMap[key][field] = datatypes[i]
+	//}
 
-		datatypes := DataTypeArrayFromResponse(resp)
-		for i, field := range resp.Results[0].Series[0].Columns {
-			if i == 0 {
-				continue
-			}
-			fieldMap[key][field] = datatypes[i]
-		}
-
-	}
+	//}
 
 	return fieldMap
 }
@@ -1773,7 +1773,7 @@ func DataTypeArrayFromResponse(resp *Response) []string {
 						fields = append(fields, "string")
 					} else if v, ok := value.(json.Number); ok {
 						if _, err := v.Int64(); err == nil {
-							fields = append(fields, "int64")
+							fields = append(fields, "float64") // todo
 						} else if _, err := v.Float64(); err == nil {
 							fields = append(fields, "float64")
 						} else {
@@ -3279,8 +3279,8 @@ func GetQueryTimeRange(queryString string) (int64, int64) {
 		return -1, -1
 	}
 
-	start_time := timeRange.MinTime().UnixNano()
-	end_time := timeRange.MaxTime().UnixNano()
+	start_time := timeRange.MinTime().Unix()
+	end_time := timeRange.MaxTime().Unix()
 
 	if start_time < (math.MinInt64 / 2) {
 		start_time = -1
@@ -3326,7 +3326,7 @@ func IntegratedClient(queryString string) {
 	semanticSegment := GetSemanticSegment(queryString)
 
 	/* 向 cache 查询数据 */
-	values, _, err := mc.Get(semanticSegment, startTime, endTime)
+	values, err := mc.Get(semanticSegment)
 	if err == memcache.ErrCacheMiss {
 		log.Printf("Key not found in cache")
 	} else if err != nil {
@@ -3336,7 +3336,7 @@ func IntegratedClient(queryString string) {
 	}
 
 	/* 把查询结果从字节流转换成 Response 结构 */
-	convertedResponse := ByteArrayToResponse(values)
+	convertedResponse := ByteArrayToResponse(values.Value)
 
 	/* 从cache返回的数据的时间范围 */
 	recv_start_time, recv_end_time := GetResponseTimeRange(convertedResponse)
@@ -3372,11 +3372,11 @@ func IntegratedClient(queryString string) {
 	/* 把剩余数据存入 cache */
 	if remainResponse != nil {
 		remainSemanticSegment := GetSemanticSegment(remainQuery)
-		remain_start_time, remain_end_time := GetResponseTimeRange(remainResponse)
-		numOfTab := GetNumOfTable(remainResponse)
+		//remain_start_time, remain_end_time := GetResponseTimeRange(remainResponse)
+		//numOfTab := GetNumOfTable(remainResponse)
 		remainValues := remainResponse.ToByteArray(remainQuery)
 
-		err = mc.Set(&memcache.Item{Key: remainSemanticSegment, Value: remainValues, Time_start: remain_start_time, Time_end: remain_end_time, NumOfTables: numOfTab})
+		err = mc.Set(&memcache.Item{Key: remainSemanticSegment, Value: remainValues})
 		if err != nil {
 			log.Fatalf("Error setting value: %v", err)
 		} else {
@@ -3386,6 +3386,107 @@ func IntegratedClient(queryString string) {
 
 	//fmt.Println(values)
 	//fmt.Println(convertedResponse.ToString())
+
+}
+
+// 根据时间尺度分割查询结果	todo
+func SplitResponseValuesByTime(resp *Response, timeSize string) [][][][]interface{} {
+	result := make([][][][]interface{}, 0)
+
+	if ResponseIsEmpty(resp) {
+		return nil
+	}
+
+	// 获取划分查询结果所用的时间间隔
+	duration, err := time.ParseDuration(timeSize)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	interval := int64(duration)
+
+	// 查询结果的起止时间，时间跨度
+	startTime, endTime := GetResponseTimeRange(resp)
+	all_time := endTime - startTime
+
+	if all_time <= interval {
+		values := make([][][]interface{}, 0)
+		for _, series := range resp.Results[0].Series {
+			values = append(values, series.Values)
+		}
+		result = append(result, values)
+		return result
+	}
+	splitNum := int((all_time + interval - 1) / interval)
+
+	for i := 0; i < splitNum; i++ {
+		values := make([][][]interface{}, 0)
+		for j := range resp.Results[0].Series {
+			vlen := len(resp.Results[0].Series[j].Values)
+			valPerResp := ((vlen + splitNum - 1) / splitNum)
+			sIdx := i * valPerResp
+			eIdx := 0
+			if (sIdx + valPerResp) > vlen {
+				eIdx = vlen
+			} else {
+				eIdx = (sIdx + valPerResp)
+			}
+			value := resp.Results[0].Series[j].Values
+			nvalues := value[sIdx:eIdx]
+			values = append(values, nvalues)
+		}
+		result = append(result, values)
+	}
+
+	return result
+}
+
+const TimeSize = "10m"
+
+// 按时间尺度分块，存入 cache
+func SetToCache(queryString string) {
+	semanticSegment := GetSemanticSegment(queryString)
+	qs := NewQuery(queryString, MyDB, "s")
+	resp, _ := c.Query(qs)
+	datatype := DataTypeArrayFromResponse(resp)
+
+	valuess := SplitResponseValuesByTime(resp, TimeSize)
+
+	for _, values := range valuess { // 查询结果分块
+		//  set 分块数据	set seg[timerange] vlen	value
+		byteVal := make([]byte, 0)
+		for _, value := range values { // 每个分块的子表
+			for _, val := range value { // 每个子表的行
+				for t, v := range val { // 每个行的列
+					tmp := InterfaceToByteArray(t, datatype[t], v)
+					byteVal = append(byteVal, tmp...)
+				}
+			}
+		}
+		startTime := values[0][0][0]
+		endTime := values[0][len(values[0])-1][0]
+		stnum := startTime.(json.Number)
+		st, _ := stnum.Int64()
+		ednum := endTime.(json.Number)
+		et, _ := ednum.Int64()
+		ststr := strconv.FormatInt(st, 10)
+		edstr := strconv.FormatInt(et, 10)
+		ss := fmt.Sprintf("%s[%s,%s]", semanticSegment, ststr, edstr)
+
+		err := mc.Set(&memcache.Item{
+			Key:        ss,
+			Value:      byteVal,
+			Flags:      0,
+			Expiration: 0,
+			CasID:      0,
+		})
+		if err != nil {
+			//log.Fatal(err)
+			//log.Println("NOT STORED.")
+		} else {
+			log.Printf("store:%s\n", ss)
+			log.Println("STORED.")
+		}
+	}
 
 }
 
