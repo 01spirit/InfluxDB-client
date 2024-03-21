@@ -9,7 +9,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/bradfitz/gomemcache/memcache"
+	stscache "github.com/InfluxDB-client/memcache"
+	fatcache "github.com/bradfitz/gomemcache/memcache"
 	"io"
 	"io/ioutil"
 	"log"
@@ -36,20 +37,23 @@ type ContentEncoding string
 var c, err = NewHTTPClient(HTTPConfig{
 	Addr: "http://10.170.48.244:8086",
 	//Addr: "http://localhost:8086",
-	//Username: username,
-	//Password: password,
 })
 
 // 连接cache
-var mc = memcache.New("localhost:11213")
+var stscacheConn = stscache.New("localhost:11214")
+
+var fatcacheConn = fatcache.New("localhost:11213")
 
 // 数据库中所有表的tag和field
 var TagKV = GetTagKV(c, MyDB)
 var Fields = GetFieldKeys(c, MyDB)
-var QueryTemplates = make(map[string]int)
+var QueryTemplates = make(map[string]int) // todo
 
 // 结果转换成字节数组时string类型占用字节数
 const STRINGBYTELENGTH = 25
+
+// fatcache 设置存入的时间间隔		"1.5h"	"15m"
+const TimeSize = "15m"
 
 // 数据库名称
 const (
@@ -3156,6 +3160,8 @@ func FieldsAndAggregation(queryString string, measurementName string) (string, s
 		datatype := fieldMap[fields[i]]
 		if datatype == "" {
 			datatype = "string"
+		} else if datatype == "float" {
+			datatype = "float64"
 		}
 		fields[i] = fmt.Sprintf("%s[%s]", fields[i], datatype)
 	}
@@ -3261,7 +3267,7 @@ func GetSemanticSegment(queryString string) string {
 	return result
 }
 
-// 获取一条查询语句的时间范围
+// 获取一条查询语句的时间范围	单位为秒 "s"
 func GetQueryTimeRange(queryString string) (int64, int64) {
 	matchStr := `(?i).+WHERE(.+)`
 	conditionExpr := regexp.MustCompile(matchStr)
@@ -3282,13 +3288,16 @@ func GetQueryTimeRange(queryString string) (int64, int64) {
 
 	start_time := timeRange.MinTime().Unix()
 	end_time := timeRange.MaxTime().Unix()
-	end_time++
 
-	if start_time < (math.MinInt64 / 2) {
+	if start_time <= 0 || start_time*1000000000 < (math.MinInt64/2) { // 秒转化成纳秒，然后比较 	// todo 优化 判断时间合法性
 		start_time = -1
 	}
-	if end_time > (math.MaxInt64 / 2) {
+	if end_time <= 0 || end_time*1000000000 > (math.MaxInt64/2) {
 		end_time = -1
+	}
+
+	if end_time != -1 && end_time != start_time && !strings.Contains(queryString, "<=") { // " < end_time "，返回值要加一
+		end_time++
 	}
 
 	return start_time, end_time
@@ -3302,13 +3311,11 @@ func GetQueryTemplate(queryString string) string {
 	result := reg.ReplaceAll([]byte(queryString), []byte(replacement))
 
 	/* todo 替换符号，使模版的第一个时间判断符号是 >= , 第二个是 < */
-	//reg := regexp.MustCompile("\\'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z\\'")
-	//replacement := "?"
 
 	return string(result)
 }
 
-// todo
+// 和 STsCache 交互
 /*
 	1. 客户端接收查询语句
 	2. 客户端向 cache 系统查询，得到部分结果
@@ -3328,68 +3335,88 @@ func IntegratedClient(queryString string) {
 	semanticSegment := GetSemanticSegment(queryString)
 
 	/* 向 cache 查询数据 */
-	values, err := mc.Get(semanticSegment)
-	if err == memcache.ErrCacheMiss {
+	values, _, err := stscacheConn.Get(semanticSegment, startTime, endTime)
+	if err == stscache.ErrCacheMiss { // 缓存未命中
 		log.Printf("Key not found in cache")
-	} else if err != nil {
-		log.Fatalf("Error getting value: %v", err)
-	} else {
-		log.Printf("GET.")
-	}
 
-	/* 把查询结果从字节流转换成 Response 结构 */
-	convertedResponse := ByteArrayToResponse(values.Value)
+		/* 向数据库查询全部数据，存入 cache */
+		q := NewQuery(queryString, MyDB, "s")
+		resp, _ := c.Query(q)
 
-	/* 从cache返回的数据的时间范围 */
-	recv_start_time, recv_end_time := GetResponseTimeRange(convertedResponse)
+		if resp != nil {
+			ss := GetSemanticSegment(queryString)
+			st, et := GetResponseTimeRange(resp)
+			numOfTab := GetNumOfTable(resp)
+			remainValues := resp.ToByteArray(queryString)
 
-	/* 向数据库查询剩余数据 */
-	var remainResponse *Response
-	var remainQuery string
-	if recv_start_time > startTime {
-
-		remain_start_time_string := TimeInt64ToString(startTime) // todo 把 int64 类型的时间转换成 RFC3339 格式的时间戳，替换到查询模版上
-
-		remain_end_time_string := TimeInt64ToString(recv_start_time)
-
-		remainQuery = strings.Replace(queryTemplate, "?", remain_start_time_string, 1)
-		remainQuery = strings.Replace(remainQuery, "?", remain_end_time_string, 1)
-
-		q := NewQuery(remainQuery, MyDB, "ns")
-		remainResponse, _ = c.Query(q)
-	} else if recv_end_time < endTime {
-		endTime += 1 // 查询中的结束时间用的是 "<"
-
-		remain_start_time_string := TimeInt64ToString(recv_end_time)
-
-		remain_end_time_string := TimeInt64ToString(endTime)
-
-		remainQuery = strings.Replace(queryTemplate, "?", "'"+remain_start_time_string+"'", 1)
-		remainQuery = strings.Replace(remainQuery, "?", "'"+remain_end_time_string+"'", 1)
-
-		q := NewQuery(remainQuery, MyDB, "ns")
-		remainResponse, _ = c.Query(q)
-	}
-
-	/* 把剩余数据存入 cache */
-	if remainResponse != nil {
-		remainSemanticSegment := GetSemanticSegment(remainQuery)
-		//remain_start_time, remain_end_time := GetResponseTimeRange(remainResponse)
-		//numOfTab := GetNumOfTable(remainResponse)
-		remainValues := remainResponse.ToByteArray(remainQuery)
-
-		err = mc.Set(&memcache.Item{Key: remainSemanticSegment, Value: remainValues})
-		if err != nil {
-			log.Fatalf("Error setting value: %v", err)
-		} else {
-			log.Printf("STORED.")
+			/* 存入 cache */
+			err = stscacheConn.Set(&stscache.Item{Key: ss, Value: remainValues, Time_start: st, Time_end: et, NumOfTables: numOfTab})
+			if err != nil {
+				log.Fatalf("Error setting value: %v", err)
+			} else {
+				log.Printf("STORED.")
+			}
 		}
-	}
+	} else if err != nil { // 异常
+		log.Fatalf("Error getting value: %v", err)
+	} else { // 缓存部分命中或完全命中
+		log.Printf("GET.")
 
-	//fmt.Println(values)
-	//fmt.Println(convertedResponse.ToString())
+		/* 把查询结果从字节流转换成 Response 结构 */
+		convertedResponse := ByteArrayToResponse(values)
+
+		/* 从cache返回的数据的时间范围 */
+		recv_start_time, recv_end_time := GetResponseTimeRange(convertedResponse)
+
+		/* 向数据库查询剩余数据 	暂时只考虑一侧未命中的情况，不考虑两个时间范围都未命中的情况*/
+		var remainResponse *Response
+		var remainQuery string
+		if recv_start_time > startTime { // 起始时间未命中，结束时间命中
+
+			remain_start_time_string := TimeInt64ToString(startTime) // todo 把 int64 类型的时间转换成 RFC3339 格式的时间戳，替换到查询模版上
+
+			remain_end_time_string := TimeInt64ToString(recv_start_time)
+
+			remainQuery = strings.Replace(queryTemplate, "?", remain_start_time_string, 1)
+			remainQuery = strings.Replace(remainQuery, "?", remain_end_time_string, 1)
+
+			q := NewQuery(remainQuery, MyDB, "s")
+			remainResponse, _ = c.Query(q)
+		} else if recv_end_time < endTime { // 起始时间命中，结束时间未命中
+			//endTime += 1 // 查询中的结束时间用的是 "<"，暂时在 GetQueryTimeRange(queryString) 里处理了
+
+			remain_start_time_string := TimeInt64ToString(recv_end_time)
+			remain_end_time_string := TimeInt64ToString(endTime)
+
+			/* 替换到查询模版中 */
+			remainQuery = strings.Replace(queryTemplate, "?", "'"+remain_start_time_string+"'", 1)
+			remainQuery = strings.Replace(remainQuery, "?", "'"+remain_end_time_string+"'", 1)
+
+			/* 向数据库查询剩余数据 */
+			q := NewQuery(remainQuery, MyDB, "s")
+			remainResponse, _ = c.Query(q)
+		}
+
+		/* 把剩余数据存入 cache */
+		if remainResponse != nil {
+			remainSemanticSegment := GetSemanticSegment(remainQuery)
+			remain_start_time, remain_end_time := GetResponseTimeRange(remainResponse)
+			numOfTab := GetNumOfTable(remainResponse)
+			remainValues := remainResponse.ToByteArray(remainQuery)
+
+			err = stscacheConn.Set(&stscache.Item{Key: remainSemanticSegment, Value: remainValues, Time_start: remain_start_time, Time_end: remain_end_time, NumOfTables: numOfTab})
+			if err != nil {
+				log.Fatalf("Error setting value: %v", err)
+			} else {
+				log.Printf("STORED.")
+			}
+		}
+
+	}
 
 }
+
+// todo Get() 的时间范围也要分割开
 
 // 根据时间尺度分割查询结果	返回分块后的数据，以及每块对应的查询语句时间字符串
 func SplitResponseValuesByTime(queryString string, resp *Response, timeSize string) ([][][][]interface{}, []int64, []int64) {
@@ -3463,10 +3490,8 @@ func SplitResponseValuesByTime(queryString string, resp *Response, timeSize stri
 	return result, starts, ends
 }
 
-const TimeSize = "14m"
-
 // 按时间尺度分块，存入 cache
-func SetToCache(queryString string) {
+func SetToFatache(queryString string) {
 	semanticSegment := GetSemanticSegment(queryString)
 	qs := NewQuery(queryString, MyDB, "s")
 	resp, _ := c.Query(qs)
@@ -3489,7 +3514,7 @@ func SetToCache(queryString string) {
 		etStr := ends[i]
 		ss := fmt.Sprintf("%s[%d,%d]", semanticSegment, stStr, etStr)
 
-		err := mc.Set(&memcache.Item{
+		err := fatcacheConn.Set(&fatcache.Item{
 			Key:        ss,
 			Value:      byteVal,
 			Flags:      0,

@@ -3,8 +3,9 @@ package main
 import (
 	"bufio"
 	"fmt"
+	stscache "github.com/InfluxDB-client/memcache"
 	client "github.com/InfluxDB-client/v2"
-	"github.com/bradfitz/gomemcache/memcache"
+	fatcache "github.com/bradfitz/gomemcache/memcache"
 	"log"
 	"os"
 )
@@ -14,45 +15,12 @@ var c, err = client.NewHTTPClient(client.HTTPConfig{
 	//Addr: "http://localhost:8086",
 })
 
+// MyDB := "test"
 // 连接cache
-var mc = memcache.New("localhost:11213")
-
-//MyDB := "test"
+var stscacheConn = stscache.New("localhost:11214")
+var fatcacheConn = fatcache.New("localhost:11213")
 
 func main() {
-
-	//queryString := `select usage_system,usage_user,usage_guest,usage_nice,usage_guest_nice from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:00:20Z' and hostname='host_0'`
-	//qs := client.NewQuery(queryString, MyDB, "ns")
-	//resp, _ := c.Query(qs)
-	//
-	//semanticSegment := client.GetSemanticSegment(queryString)
-	//respCacheByte := resp.ToByteArray(queryString)
-	//fmt.Println(resp.ToString())
-	//
-	//if err != nil {
-	//	log.Fatal(err)
-	//}
-	//
-	//mc := memcache.New("localhost:11213")
-	//
-	//err = mc.Set(&memcache.Item{Key: semanticSegment, Value: respCacheByte})
-	//if err != nil {
-	//	log.Fatalf("Error setting value: %v", err)
-	//} else {
-	//	log.Printf("STORED.")
-	//}
-	//
-	//values, err := mc.Get(semanticSegment)
-	//if err == memcache.ErrCacheMiss {
-	//	log.Printf("Key not found in cache")
-	//} else if err != nil {
-	//	log.Fatalf("Error getting value: %v", err)
-	//} else {
-	//	log.Printf("GET.")
-	//}
-	//
-	//convertedResp := client.ByteArrayToResponse(values.Value)
-	//fmt.Println(convertedResp.ToString())
 
 	file, err := os.Open("C:\\Users\\DELL\\Desktop\\workloads.txt")
 	if err != nil {
@@ -69,12 +37,12 @@ func main() {
 	for scanner.Scan() {
 		//fmt.Println(scanner.Text())
 		queryString = scanner.Text()
-		client.SetToCache(queryString)
+		client.SetToFatache(queryString)
 
 		st, et := client.GetQueryTimeRange(queryString)
 		ss := client.GetSemanticSegment(queryString)
 		ss = fmt.Sprintf("%s[%d,%d]", ss, st, et)
-		items, err := mc.Get(ss)
+		items, err := fatcacheConn.Get(ss)
 		log.Printf("\tget:%s\n", ss)
 		if err != nil {
 			//log.Fatal(err)

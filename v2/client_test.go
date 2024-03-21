@@ -3,7 +3,9 @@ package client
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	stscache "github.com/InfluxDB-client/memcache"
 	"io/ioutil"
 	"log"
 	"math"
@@ -1357,7 +1359,7 @@ func TestGetSFSGWithDataType(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			q := NewQuery(tt.queryString, MyDB, "ns")
+			q := NewQuery(tt.queryString, MyDB, "s")
 			resp, err := c.Query(q)
 			if err != nil {
 				t.Fatalf(err.Error())
@@ -1559,7 +1561,7 @@ func TestGetSP(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			q := NewQuery(tt.queryString, MyDB, "ns")
+			q := NewQuery(tt.queryString, MyDB, "s")
 			resp, _ := c.Query(q)
 			SP, tags := GetSP(tt.queryString, resp, TagKV)
 			//fmt.Println(SP)
@@ -1784,7 +1786,7 @@ func TestSemanticSegmentInstance(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			query := NewQuery(tt.queryString, MyDB, "ns")
+			query := NewQuery(tt.queryString, MyDB, "s")
 			resp, err := c.Query(query)
 			if err != nil {
 				fmt.Println(err)
@@ -1873,7 +1875,7 @@ func TestSemanticSegmentDBTest(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			query := NewQuery(tt.queryString, MyDB, "ns")
+			query := NewQuery(tt.queryString, MyDB, "s")
 			resp, err := c.Query(query)
 			if err != nil {
 				fmt.Println(err)
@@ -4294,7 +4296,7 @@ func TestTSCacheParameter(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			query := NewQuery(tt.queryString, MyDB, "ns")
+			query := NewQuery(tt.queryString, MyDB, "s")
 			resp, err := c.Query(query)
 			if err != nil {
 				fmt.Println(err)
@@ -4418,7 +4420,7 @@ func TestTSCacheByteToValue(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			query := NewQuery(tt.queryString, MyDB, "ns")
+			query := NewQuery(tt.queryString, MyDB, "s")
 			resp, err := c.Query(query)
 			if err != nil {
 				fmt.Println(err)
@@ -4841,22 +4843,22 @@ func TestGetQueryTimeRange(t *testing.T) {
 		{
 			name:        "1",
 			queryString: "SELECT index FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z'",
-			expected:    []int64{1566086400000000000, 1566088200000000000},
+			expected:    []int64{1566086400, 1566088200},
 		},
 		{
 			name:        "2",
 			queryString: "SELECT index FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z'",
-			expected:    []int64{1566086400000000000, -1},
+			expected:    []int64{1566086400, -1},
 		},
 		{
 			name:        "3",
 			queryString: "SELECT index FROM h2o_quality WHERE time <= '2019-08-18T00:30:00Z'",
-			expected:    []int64{-1, 1566088200000000000},
+			expected:    []int64{-1, 1566088200},
 		},
 		{
 			name:        "4",
 			queryString: "SELECT index FROM h2o_quality WHERE time = '2019-08-18T00:00:00Z'",
-			expected:    []int64{1566086400000000000, 1566086400000000000},
+			expected:    []int64{1566086400, 1566086400},
 		},
 		{
 			name:        "5",
@@ -4922,7 +4924,7 @@ func TestTimeReplace(t *testing.T) {
 
 func TestSplitResponseByTime(t *testing.T) {
 	queryString := `select usage_system,usage_user,usage_guest,usage_nice,usage_guest_nice from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T03:20:00Z' and hostname='host_0'`
-	qs := NewQuery(queryString, MyDB, "ns")
+	qs := NewQuery(queryString, MyDB, "s")
 	resp, _ := c.Query(qs)
 	timeChunkSize := "1h"
 
@@ -4938,70 +4940,69 @@ func TestSplitResponseByTime(t *testing.T) {
 
 }
 
-func TestSetToCache(t *testing.T) {
+func TestSetToFatCache(t *testing.T) {
 	queryString := `select usage_guest from test..cpu where time >= '2022-01-02T09:40:00Z' and time < '2022-01-02T10:10:00Z' and hostname='host_0'`
 
-	SetToCache(queryString)
+	SetToFatache(queryString)
 	st, et := GetQueryTimeRange(queryString)
 	ss := GetSemanticSegment(queryString)
 	ss = fmt.Sprintf("%s[%d,%d]", ss, st, et)
-	items, err := mc.Get(ss)
+	log.Printf("\tget:%s\n", ss)
+	items, err := fatcacheConn.Get(ss)
 	if err != nil {
 		log.Fatal(err)
 	} else {
 		log.Println("GET.")
+		log.Println("\tget byte length:", len(items.Value))
 	}
-
-	response := ByteArrayToResponse(items.Value)
-	fmt.Println(response.ToString())
 
 }
 
-//func TestIntegratedClient(t *testing.T) {
-//	queryToBeGet := `select usage_system,usage_user,usage_guest,usage_nice,usage_guest_nice from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:00:20Z' and hostname='host_0'`
-//
-//	queryToBeSet := `select usage_system,usage_user,usage_guest,usage_nice,usage_guest_nice from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:00:10Z' and hostname='host_0'`
-//
-//	qm := NewQuery(queryToBeSet, MyDB, "ns")
-//	respCache, _ := c.Query(qm)
-//	start_time, end_time := GetResponseTimeRange(respCache)
-//	numOfTab := GetNumOfTable(respCache)
-//
-//	semanticSegment := GetSemanticSegment(queryToBeSet)
-//	respCacheByte := respCache.ToByteArray(queryToBeSet)
-//	fmt.Println(respCache.ToString())
-//	//fmt.Println(respCacheByte)
-//
-//	/* 向 cache set 0-10 的数据 */
-//	err = mc.Set(&memcache.Item{Key: semanticSegment, Value: respCacheByte, Time_start: start_time, Time_end: end_time, NumOfTables: numOfTab})
-//	if err != nil {
-//		log.Fatalf("Error setting value: %v", err)
-//	} else {
-//		log.Printf("STORED.")
-//	}
-//
-//	/* 向 cache get 0-20 的数据，缺失的数据向数据库查询并存入 cache */
-//	IntegratedClient(queryToBeGet)
-//
-//	/* 向 cache get 0-20 的数据 */
-//	qgst, qget := GetQueryTimeRange(queryToBeGet)
-//	values, _, err := mc.Get(semanticSegment, qgst, qget)
-//	if err == memcache.ErrCacheMiss {
-//		log.Printf("Key not found in cache")
-//	} else if err != nil {
-//		log.Fatalf("Error getting value: %v", err)
-//	} else {
-//		log.Printf("GET.")
-//	}
-//
-//	/* 把查询结果从字节流转换成 Response 结构 */
-//	convertedResponse := ByteArrayToResponse(values)
-//	crst, cret := GetResponseTimeRange(convertedResponse)
-//	fmt.Println(convertedResponse.ToString())
-//	fmt.Println(crst)
-//	fmt.Println(cret)
-//
-//}
+func TestIntegratedClient(t *testing.T) {
+	queryToBeGet := `select usage_system,usage_user,usage_guest,usage_nice,usage_guest_nice from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:00:20Z' and hostname='host_0'`
+
+	queryToBeSet := `select usage_system,usage_user,usage_guest,usage_nice,usage_guest_nice from test..cpu where time >= '2022-01-01T00:00:00Z' and time < '2022-01-01T00:00:10Z' and hostname='host_0'`
+
+	qm := NewQuery(queryToBeSet, MyDB, "s")
+	respCache, _ := c.Query(qm)
+	startTime, endTime := GetResponseTimeRange(respCache)
+	numOfTab := GetNumOfTable(respCache)
+
+	semanticSegment := GetSemanticSegment(queryToBeSet)
+	respCacheByte := respCache.ToByteArray(queryToBeSet)
+	fmt.Println(respCache.ToString())
+	//fmt.Println(respCacheByte)
+
+	/* 向 stscache set 0-10 的数据 */
+	err = stscacheConn.Set(&stscache.Item{Key: semanticSegment, Value: respCacheByte, Time_start: startTime, Time_end: endTime, NumOfTables: numOfTab})
+	if err != nil {
+		log.Fatalf("Error setting value: %v", err)
+	} else {
+		log.Printf("STORED.")
+	}
+
+	/* 向 cache get 0-20 的数据，缺失的数据向数据库查询并存入 cache */
+	IntegratedClient(queryToBeGet)
+
+	/* 向 cache get 0-20 的数据 */
+	qgst, qget := GetQueryTimeRange(queryToBeGet)
+	values, _, err := stscacheConn.Get(semanticSegment, qgst, qget)
+	if errors.Is(err, stscache.ErrCacheMiss) {
+		log.Printf("Key not found in cache")
+	} else if err != nil {
+		log.Fatalf("Error getting value: %v", err)
+	} else {
+		log.Printf("GET.")
+	}
+
+	/* 把查询结果从字节流转换成 Response 结构 */
+	convertedResponse := ByteArrayToResponse(values)
+	crst, cret := GetResponseTimeRange(convertedResponse)
+	fmt.Println(convertedResponse.ToString())
+	fmt.Println(crst)
+	fmt.Println(cret)
+
+}
 
 // done 根据查询时向 client.Query() 传入的时间的参数不同，会返回string和int64的不同类型的时间戳
 /*
