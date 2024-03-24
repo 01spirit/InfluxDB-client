@@ -42,14 +42,16 @@ func main() {
 		st, et := client.GetQueryTimeRange(queryString)
 		ss := client.GetSemanticSegment(queryString)
 		ss = fmt.Sprintf("%s[%d,%d]", ss, st, et)
-		items, err := fatcacheConn.Get(ss)
-		log.Printf("\tget:%s\n", ss)
+		//items, err := fatcacheConn.Get(ss)
+		client.GetFromFatcache(queryString)
+
+		//log.Printf("\tget:%s\n", ss)
 		if err != nil {
 			//log.Fatal(err)
 			//log.Println("NOT GET.")
 		} else {
 			log.Println("\tGET.")
-			log.Println("\tget byte length:", len(items.Value))
+			//log.Println("\tget byte length:", len(items.Value))
 		}
 
 	}

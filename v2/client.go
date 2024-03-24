@@ -47,13 +47,13 @@ var fatcacheConn = fatcache.New("localhost:11213")
 // 数据库中所有表的tag和field
 var TagKV = GetTagKV(c, MyDB)
 var Fields = GetFieldKeys(c, MyDB)
-var QueryTemplates = make(map[string]int) // todo
+var QueryTemplates = make(map[string]string) // 存放查询模版及其语义段；查询模板只替换了时间范围，语义段没变
 
 // 结果转换成字节数组时string类型占用字节数
 const STRINGBYTELENGTH = 25
 
 // fatcache 设置存入的时间间隔		"1.5h"	"15m"
-const TimeSize = "15m"
+const TimeSize = "8m"
 
 // 数据库名称
 const (
@@ -3329,10 +3329,12 @@ func IntegratedClient(queryString string) {
 
 	/* 原始查询语句替换掉时间之后的的模版 */
 	queryTemplate := GetQueryTemplate(queryString) // 时间用 '?' 代替
-	QueryTemplates[queryTemplate] = 1              // 存入全局 map
 
 	/* 构造语义段 */
 	semanticSegment := GetSemanticSegment(queryString)
+
+	/* 存入全局 map */
+	QueryTemplates[queryTemplate] = semanticSegment
 
 	/* 向 cache 查询数据 */
 	values, _, err := stscacheConn.Get(semanticSegment, startTime, endTime)
@@ -3344,13 +3346,13 @@ func IntegratedClient(queryString string) {
 		resp, _ := c.Query(q)
 
 		if resp != nil {
-			ss := GetSemanticSegment(queryString)
+			//ss := GetSemanticSegment(queryString)
 			st, et := GetResponseTimeRange(resp)
 			numOfTab := GetNumOfTable(resp)
 			remainValues := resp.ToByteArray(queryString)
 
 			/* 存入 cache */
-			err = stscacheConn.Set(&stscache.Item{Key: ss, Value: remainValues, Time_start: st, Time_end: et, NumOfTables: numOfTab})
+			err = stscacheConn.Set(&stscache.Item{Key: semanticSegment, Value: remainValues, Time_start: st, Time_end: et, NumOfTables: numOfTab})
 			if err != nil {
 				log.Fatalf("Error setting value: %v", err)
 			} else {
@@ -3399,7 +3401,8 @@ func IntegratedClient(queryString string) {
 
 		/* 把剩余数据存入 cache */
 		if remainResponse != nil {
-			remainSemanticSegment := GetSemanticSegment(remainQuery)
+			//remainSemanticSegment := GetSemanticSegment(remainQuery)
+			remainSemanticSegment := semanticSegment
 			remain_start_time, remain_end_time := GetResponseTimeRange(remainResponse)
 			numOfTab := GetNumOfTable(remainResponse)
 			remainValues := remainResponse.ToByteArray(remainQuery)
@@ -3419,7 +3422,7 @@ func IntegratedClient(queryString string) {
 // todo Get() 的时间范围也要分割开
 
 // 根据时间尺度分割查询结果	返回分块后的数据，以及每块对应的查询语句时间字符串
-func SplitResponseValuesByTime(queryString string, resp *Response, timeSize string) ([][][][]interface{}, []int64, []int64) {
+func SplitResponseValuesByTime(queryString string, resp *Response) ([][][][]interface{}, []int64, []int64) {
 	result := make([][][][]interface{}, 0)
 	starts := make([]int64, 0)
 	ends := make([]int64, 0)
@@ -3429,7 +3432,7 @@ func SplitResponseValuesByTime(queryString string, resp *Response, timeSize stri
 	}
 
 	// 获取划分查询结果所用的时间间隔
-	duration, err := time.ParseDuration(timeSize)
+	duration, err := time.ParseDuration(TimeSize)
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -3497,7 +3500,11 @@ func SetToFatache(queryString string) {
 	resp, _ := c.Query(qs)
 	datatype := DataTypeArrayFromResponse(resp)
 
-	valuess, starts, ends := SplitResponseValuesByTime(queryString, resp, TimeSize)
+	/* 把查询模版存入全局 map */
+	queryTemplate := GetQueryTemplate(queryString)
+	QueryTemplates[queryTemplate] = semanticSegment
+
+	valuess, starts, ends := SplitResponseValuesByTime(queryString, resp)
 
 	for i, values := range valuess { // 查询结果分块
 		//  set 分块数据	set seg[timerange] vlen	value
@@ -3531,6 +3538,76 @@ func SetToFatache(queryString string) {
 		}
 	}
 
+}
+
+func GetFromFatcache(queryString string) [][]byte {
+	results := make([][]byte, 0)
+
+	queryTemplate := GetQueryTemplate(queryString)
+	if semanticSegment, ok := QueryTemplates[queryTemplate]; !ok { // 不存在该查询的模版，说明之前没存过
+		return nil
+	} else { // 存在该查询模版，尝试Get
+		// 获取划分查询结果所用的时间间隔
+		duration, err := time.ParseDuration(TimeSize)
+		if err != nil {
+			log.Fatalln(err)
+		}
+		interval := int64(duration.Seconds())
+
+		// 查询结果的起止时间，时间跨度
+		startTime, endTime := GetQueryTimeRange(queryString)
+		allTime := endTime - startTime
+
+		// 查询时间范围小于分割的时间尺度，直接查询
+		if allTime <= interval {
+			// 直接向 cache Get
+			startTime, endTime := GetQueryTimeRange(queryString)
+			ss := fmt.Sprintf("%s[%d,%d]", semanticSegment, startTime, endTime)
+
+			/* 向 cache Get */
+			items, err := fatcacheConn.Get(ss)
+			if err != nil {
+				log.Println(err)
+			} else {
+				log.Println("\tGET.")
+				log.Println("\tget byte length:", len(items.Value))
+
+				results = append(results, items.Value)
+				return results
+			}
+
+		} else {
+			// todo 按照时间尺度分割查询，分别向cache Get
+
+			// 分割的块数
+			splitNum := int((allTime + interval - 1) / interval)
+			var idx int64 = 0
+			for i := 0; i < splitNum; i++ {
+				tmpStartTime := startTime + interval*idx // 每块对应查询语句的起始时间
+				idx++
+				tmpEndTime := startTime + interval*idx // 每块对应的查询语句的结束时间
+				if tmpEndTime > endTime {              // 最后一块的结束时间
+					tmpEndTime = endTime
+				}
+
+				ss := fmt.Sprintf("%s[%d,%d]", semanticSegment, tmpStartTime, tmpEndTime)
+				/* 向 cache Get */
+				items, err := fatcacheConn.Get(ss)
+				if err != nil {
+					log.Println(err)
+				} else {
+					log.Printf("\tget:%s\n", ss)
+					log.Println("\tGET.")
+					log.Println("\tget byte length:", len(items.Value))
+					results = append(results, items.Value)
+				}
+
+			}
+
+			return results
+		}
+	}
+	return results
 }
 
 // todo :
