@@ -2,9 +2,74 @@ package client
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 )
+
+func TestGetInterval(t *testing.T) {
+	tests := []struct {
+		name        string
+		queryString string
+		expected    string
+	}{
+
+		{
+			name:        "without GROUP BY",
+			queryString: "SELECT water_level FROM h2o_feet WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z'",
+			expected:    "empty",
+		},
+		{
+			name:        "without time()",
+			queryString: "SELECT MAX(water_level) FROM h2o_feet WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY location",
+			expected:    "empty",
+		},
+		{
+			name:        "only time()",
+			queryString: "SELECT MAX(water_level) FROM h2o_feet WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY time(12m)",
+			expected:    "12m",
+		},
+		{
+			name:        "only time()",
+			queryString: "SELECT MAX(water_level) FROM h2o_feet WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY time(12h)",
+			expected:    "12h",
+		},
+		{
+			name:        "only time()",
+			queryString: "SELECT MAX(water_level) FROM h2o_feet WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY time(12s)",
+			expected:    "12s",
+		},
+		{
+			name:        "only time()",
+			queryString: "SELECT MAX(water_level) FROM h2o_feet WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY time(12ns)",
+			expected:    "12ns",
+		},
+		{
+			name:        "with time() and one tag",
+			queryString: "SELECT MAX(water_level) FROM h2o_feet WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY location,time(12m)",
+			expected:    "12m",
+		},
+		{
+			name:        "with time() and two tags",
+			queryString: "SELECT MAX(water_level) FROM h2o_feet WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z' GROUP BY location,time(12m),randtag",
+			expected:    "12m",
+		},
+		{
+			name:        "different time()",
+			queryString: "SELECT MAX(water_level) FROM h2o_feet WHERE location='coyote_creek' AND time >= '2015-09-18T16:00:00Z' AND time <= '2015-09-18T16:42:00Z' GROUP BY time(12h)",
+			expected:    "12h",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			interval := GetInterval(tt.queryString)
+			if !reflect.DeepEqual(interval, tt.expected) {
+				t.Errorf("interval:\t%s\nexpected:\t%s", interval, tt.expected)
+			}
+		})
+	}
+}
 
 func TestFieldsAndAggregation(t *testing.T) {
 	tests := []struct {
@@ -130,6 +195,88 @@ func TestPredicatesAndTagConditions(t *testing.T) {
 			}
 			//fmt.Println(SP)
 			//fmt.Println(tagConds)
+		})
+	}
+}
+
+func TestGetBinaryExpr(t *testing.T) {
+	tests := []struct {
+		name       string
+		expression string
+		expected   string
+	}{
+		{
+			name:       "binary expr",
+			expression: "location='coyote_creek'",
+			expected:   "location = 'coyote_creek'",
+		},
+		{
+			name:       "binary expr",
+			expression: "location='coyote creek'",
+			expected:   "location = 'coyote creek'",
+		},
+		{
+			name:       "multiple binary exprs",
+			expression: "location='coyote_creek' AND randtag='2' AND index>=50",
+			expected:   "location = 'coyote_creek' AND randtag = '2' AND index >= 50",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			binaryExpr := getBinaryExpr(tt.expression)
+			if !reflect.DeepEqual(binaryExpr.String(), tt.expected) {
+				t.Errorf("binary expression:\t%s\nexpected:\t%s", binaryExpr, tt.expected)
+			}
+		})
+	}
+}
+
+func TestPreOrderTraverseBinaryExpr(t *testing.T) {
+	tests := []struct {
+		name             string
+		binaryExprString string
+		expected         [][]string
+	}{
+		{
+			name:             "binary expr",
+			binaryExprString: "location='coyote_creek'",
+			expected:         [][]string{{"location", "location='coyote_creek'", "string"}},
+		},
+		{
+			name:             "multiple binary expr",
+			binaryExprString: "location='coyote_creek' AND randtag='2' AND index>=50",
+			expected:         [][]string{{"location", "location='coyote_creek'", "string"}, {"randtag", "randtag='2'", "string"}, {"index", "index>=50", "int64"}},
+		},
+		{
+			name:             "complex situation",
+			binaryExprString: "location <> 'santa_monica' AND (water_level < -0.59 OR water_level > 9.95)",
+			expected:         [][]string{{"location", "location!='santa_monica'", "string"}, {"water_level", "water_level<-0.590", "float64"}, {"water_level", "water_level>9.950", "float64"}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			conds := make([]string, 0)
+			datatype := make([]string, 0)
+			tag := make([]string, 0)
+			binaryExpr := getBinaryExpr(tt.binaryExprString)
+			tags, predicates, datatypes := preOrderTraverseBinaryExpr(binaryExpr, &tag, &conds, &datatype)
+			for i, d := range *tags {
+				if d != tt.expected[i][0] {
+					t.Errorf("tag:\t%s\nexpected:\t%s", d, tt.expected[i][0])
+				}
+			}
+			for i, p := range *predicates {
+				if p != tt.expected[i][1] {
+					t.Errorf("predicate:\t%s\nexpected:\t%s", p, tt.expected[i][1])
+				}
+			}
+			for i, d := range *datatypes {
+				if d != tt.expected[i][2] {
+					t.Errorf("datatype:\t%s\nexpected:\t%s", d, tt.expected[i][2])
+				}
+			}
 		})
 	}
 }

@@ -24,7 +24,6 @@ func GetSM(resp *Response, tagPredicates []string) string {
 	}
 
 	tagArr = GetTagNameArr(resp)
-
 	tagPre := make([]string, 0)
 	for i := range tagPredicates {
 		var idx int

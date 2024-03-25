@@ -7,6 +7,8 @@ import (
 	"time"
 )
 
+// 构造查询时 调用 NewQuery()，如果不指定 precision ,查询结果的时间戳是 RFC3339 格式的字符串；指定为 s，查询结果的时间戳是以秒为单位的 int64；指定为 ns，查询结果的时间戳是以纳秒为单位的 int64
+
 func TestSortResponseWithTimeRange(t *testing.T) {
 	// 连接数据库
 	var c, _ = NewHTTPClient(HTTPConfig{
@@ -1233,7 +1235,7 @@ func TestMerge2(t *testing.T) {
 			MyDB := "NOAA_water_database"
 			var resps []*Response
 			for i := range tt.querys {
-				query := NewQuery(tt.querys[i], MyDB, "s")
+				query := NewQuery(tt.querys[i], MyDB, "")
 				respTmp, _ := c.Query(query)
 				resps = append(resps, respTmp)
 			}

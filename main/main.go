@@ -37,13 +37,13 @@ func main() {
 	for scanner.Scan() {
 		//fmt.Println(scanner.Text())
 		queryString = scanner.Text()
-		client.SetToFatache(queryString)
+		client.SetToFatache(queryString, client.TimeSize)
 
 		st, et := client.GetQueryTimeRange(queryString)
 		ss := client.GetSemanticSegment(queryString)
 		ss = fmt.Sprintf("%s[%d,%d]", ss, st, et)
 		//items, err := fatcacheConn.Get(ss)
-		client.GetFromFatcache(queryString)
+		client.GetFromFatcache(queryString, client.TimeSize)
 
 		//log.Printf("\tget:%s\n", ss)
 		if err != nil {

@@ -98,7 +98,7 @@ func TestGetQueryTimeRange(t *testing.T) {
 	}
 }
 
-func TestTimeReplace(t *testing.T) {
+func TestGetQueryTemplate(t *testing.T) {
 	tests := []struct {
 		name        string
 		queryString string
@@ -106,8 +106,8 @@ func TestTimeReplace(t *testing.T) {
 	}{
 		{
 			name:        "1",
-			queryString: "SELECT index FROM h2o_quality WHERE time >= '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z'",
-			expected:    "SELECT index FROM h2o_quality WHERE time >= ? AND time <= ?",
+			queryString: "SELECT index FROM h2o_quality WHERE time > '2019-08-18T00:00:00Z' AND time <= '2019-08-18T00:30:00Z'",
+			expected:    "SELECT index FROM h2o_quality WHERE time >= ? AND time < ?",
 		},
 		{
 			name:        "2",

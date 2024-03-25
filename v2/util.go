@@ -80,25 +80,25 @@ func GetQueryTimeRange(queryString string) (int64, int64) {
 		return -1, -1
 	}
 
-	start_time := timeRange.MinTime().Unix()
-	end_time := timeRange.MaxTime().Unix()
+	startTime := timeRange.MinTime().Unix()
+	endTime := timeRange.MaxTime().Unix()
 
-	if start_time <= 0 || start_time*1000000000 < (math.MinInt64/2) { // 秒转化成纳秒，然后比较 	// todo 优化 判断时间合法性
-		start_time = -1
+	if startTime <= 0 || startTime*1000000000 < (math.MinInt64/2) { // 秒转化成纳秒，然后比较 	// todo 修改判断时间合法性的方法
+		startTime = -1
 	}
-	if end_time <= 0 || end_time*1000000000 > (math.MaxInt64/2) {
-		end_time = -1
+	if endTime <= 0 || endTime*1000000000 > (math.MaxInt64/2) {
+		endTime = -1
 	}
 
 	// 调用了 influxql 解析查询时间范围的方法，对结束时间的边界条件敏感
 	//if start_time != -1 && start_time != end_time && !strings.Contains(queryString, ">=") { // " > start_time "，返回值要减一
 	//	start_time--
 	//}
-	if end_time != -1 && end_time != start_time && !strings.Contains(queryString, "<=") { // " < end_time "，返回值要加一
-		end_time++
+	if endTime != -1 && endTime != startTime && !strings.Contains(queryString, "<=") { // " < end_time "，返回值要加一
+		endTime++
 	}
 
-	return start_time, end_time
+	return startTime, endTime
 }
 
 // GetQueryTemplate 用 "?" 替换查询语句的时间范围，重新排列符号，重构为查询模版
@@ -106,11 +106,18 @@ func GetQueryTemplate(queryString string) string {
 	/* 替换时间 */
 	reg := regexp.MustCompile("\\'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z\\'")
 	replacement := "?"
-	result := reg.ReplaceAll([]byte(queryString), []byte(replacement))
+	result := reg.ReplaceAllString(queryString, replacement)
 
-	/* todo 替换符号，使模版的第一个时间判断符号是 >= , 第二个是 < */
+	/* 替换符号，使模版的第一个时间判断符号是 >= , 第二个是 < */
+	reg = regexp.MustCompile("[<>=]+")
+	num := len(reg.FindAllString(result, -1)) // 只有起止时间都被指定时才替换
+	if num == 2 {
+		replacement = "<"
+		result = reg.ReplaceAllString(result, replacement)
+		result = strings.Replace(result, "<", ">=", 1)
+	}
 
-	return string(result)
+	return result
 }
 
 // GetFieldKeys 获取一个数据库中所有表的field name及其数据类型

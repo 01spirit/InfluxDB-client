@@ -1173,7 +1173,7 @@ func TSCacheParameter(resp *Response) ([][]string, [][]int64, [][][]byte) {
 
 /* Fatcache */
 // 根据时间尺度分割查询结果	返回分块后的数据，以及每块对应的查询语句时间字符串
-func SplitResponseValuesByTime(queryString string, resp *Response) ([][][][]interface{}, []int64, []int64) {
+func SplitResponseValuesByTime(queryString string, resp *Response, timeSize string) ([][][][]interface{}, []int64, []int64) {
 	result := make([][][][]interface{}, 0)
 	starts := make([]int64, 0)
 	ends := make([]int64, 0)
@@ -1183,7 +1183,7 @@ func SplitResponseValuesByTime(queryString string, resp *Response) ([][][][]inte
 	}
 
 	// 获取划分查询结果所用的时间间隔
-	duration, err := time.ParseDuration(TimeSize)
+	duration, err := time.ParseDuration(timeSize)
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -1245,7 +1245,7 @@ func SplitResponseValuesByTime(queryString string, resp *Response) ([][][][]inte
 }
 
 // 按时间尺度分块，存入 cache
-func SetToFatache(queryString string) {
+func SetToFatache(queryString string, timeSize string) {
 	semanticSegment := GetSemanticSegment(queryString)
 	qs := NewQuery(queryString, MyDB, "s")
 	resp, _ := c.Query(qs)
@@ -1255,7 +1255,7 @@ func SetToFatache(queryString string) {
 	queryTemplate := GetQueryTemplate(queryString)
 	QueryTemplates[queryTemplate] = semanticSegment
 
-	valuess, starts, ends := SplitResponseValuesByTime(queryString, resp)
+	valuess, starts, ends := SplitResponseValuesByTime(queryString, resp, timeSize)
 
 	for i, values := range valuess { // 查询结果分块
 		//  set 分块数据	set seg[timerange] vlen	value
@@ -1292,7 +1292,7 @@ func SetToFatache(queryString string) {
 }
 
 // 按时间尺度分块，向 Fatcache 查询，返回结果的原始字节流
-func GetFromFatcache(queryString string) [][]byte {
+func GetFromFatcache(queryString string, timeSize string) [][]byte {
 	results := make([][]byte, 0)
 
 	queryTemplate := GetQueryTemplate(queryString)
@@ -1300,7 +1300,7 @@ func GetFromFatcache(queryString string) [][]byte {
 		return nil
 	} else { // 存在该查询模版，尝试 Get
 		// 获取划分查询结果所用的时间间隔
-		duration, err := time.ParseDuration(TimeSize)
+		duration, err := time.ParseDuration(timeSize)
 		if err != nil {
 			log.Fatalln(err)
 		}
